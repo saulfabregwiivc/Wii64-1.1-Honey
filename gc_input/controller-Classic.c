@@ -205,7 +205,6 @@ static void assign(int p, int v){
 	// TODO: Light up the LEDs appropriately
 }
 
-static void init(void);
 static void refreshAvailable(void);
 
 controller_t controller_Classic =

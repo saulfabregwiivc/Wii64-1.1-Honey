@@ -131,17 +131,17 @@ static struct {
 	char* value; // Not a string, but a char pointer
 	char  min, max;
 } OPTIONS[] =
-{ { "Audio", &audioEnabled, AUDIO_DISABLE, AUDIO_ENABLE },
-  { "FPS", &showFPSonScreen, FPS_HIDE, FPS_SHOW },
+{ { (char*)"Audio", &audioEnabled, AUDIO_DISABLE, AUDIO_ENABLE },
+  { (char*)"FPS", &showFPSonScreen, FPS_HIDE, FPS_SHOW },
 //  { "Debug", &printToScreen, DEBUG_HIDE, DEBUG_SHOW },
-  { "FBTex", &glN64_useFrameBufferTextures, GLN64_FBTEX_DISABLE, GLN64_FBTEX_ENABLE },
-  { "2xSaI", &glN64_use2xSaiTextures, GLN64_2XSAI_DISABLE, GLN64_2XSAI_ENABLE },
-  { "ScreenMode", &screenMode, SCREENMODE_4x3, SCREENMODE_16x9_PILLARBOX },
-  { "Core", ((char*)&dynacore)+3, DYNACORE_INTERPRETER, DYNACORE_PURE_INTERP },
-  { "NativeDevice", &nativeSaveDevice, NATIVESAVEDEVICE_SD, NATIVESAVEDEVICE_CARDB },
-  { "StatesDevice", &saveStateDevice, SAVESTATEDEVICE_SD, SAVESTATEDEVICE_USB },
-  { "AutoSave", &autoSave, AUTOSAVE_DISABLE, AUTOSAVE_ENABLE },
-  { "LimitVIs", &Timers.limitVIs, LIMITVIS_NONE, LIMITVIS_WAIT_FOR_FRAME },
+  { (char*)"FBTex", &glN64_useFrameBufferTextures, GLN64_FBTEX_DISABLE, GLN64_FBTEX_ENABLE },
+  { (char*)"2xSaI", &glN64_use2xSaiTextures, GLN64_2XSAI_DISABLE, GLN64_2XSAI_ENABLE },
+  { (char*)"ScreenMode", &screenMode, SCREENMODE_4x3, SCREENMODE_16x9_PILLARBOX },
+  { (char*)"Core", ((char*)&dynacore)+3, DYNACORE_INTERPRETER, DYNACORE_PURE_INTERP },
+  { (char*)"NativeDevice", &nativeSaveDevice, NATIVESAVEDEVICE_SD, NATIVESAVEDEVICE_CARDB },
+  { (char*)"StatesDevice", &saveStateDevice, SAVESTATEDEVICE_SD, SAVESTATEDEVICE_USB },
+  { (char*)"AutoSave", &autoSave, AUTOSAVE_DISABLE, AUTOSAVE_ENABLE },
+  { (char*)"LimitVIs", &Timers.limitVIs, LIMITVIS_NONE, LIMITVIS_WAIT_FOR_FRAME },
 /*  { "PadType1", &padType[0], PADTYPE_NONE, PADTYPE_WII },
   { "PadType2", &padType[1], PADTYPE_NONE, PADTYPE_WII },
   { "PadType3", &padType[2], PADTYPE_NONE, PADTYPE_WII },
@@ -150,17 +150,17 @@ static struct {
   { "PadAssign2", &padAssign[1], PADASSIGN_INPUT0, PADASSIGN_INPUT3 },
   { "PadAssign3", &padAssign[2], PADASSIGN_INPUT0, PADASSIGN_INPUT3 },
   { "PadAssign4", &padAssign[3], PADASSIGN_INPUT0, PADASSIGN_INPUT3 },*/
-  { "Pak1", &pakMode[0], PAKMODE_MEMPAK, PAKMODE_RUMBLEPAK },
-  { "Pak2", &pakMode[1], PAKMODE_MEMPAK, PAKMODE_RUMBLEPAK },
-  { "Pak3", &pakMode[2], PAKMODE_MEMPAK, PAKMODE_RUMBLEPAK },
-  { "Pak4", &pakMode[3], PAKMODE_MEMPAK, PAKMODE_RUMBLEPAK },
-  { "LoadButtonSlot", &loadButtonSlot, LOADBUTTON_SLOT0, LOADBUTTON_DEFAULT },
+  { (char*)"Pak1", &pakMode[0], PAKMODE_MEMPAK, PAKMODE_RUMBLEPAK },
+  { (char*)"Pak2", &pakMode[1], PAKMODE_MEMPAK, PAKMODE_RUMBLEPAK },
+  { (char*)"Pak3", &pakMode[2], PAKMODE_MEMPAK, PAKMODE_RUMBLEPAK },
+  { (char*)"Pak4", &pakMode[3], PAKMODE_MEMPAK, PAKMODE_RUMBLEPAK },
+  { (char*)"LoadButtonSlot", &loadButtonSlot, LOADBUTTON_SLOT0, LOADBUTTON_DEFAULT },
 };
 void handleConfigPair(char* kv);
 void readConfig(FILE* f);
 void writeConfig(FILE* f);
 
-extern "C" void gfx_set_fb(unsigned int* fb1, unsigned int* fb2);
+extern "C" void gfx_set_fb(u32* fb1, u32* fb2);
 void gfx_set_window(int x, int y, int width, int height);
 // -- End plugin data --
 
@@ -184,7 +184,7 @@ u16 readWPAD(void);
 int main(int argc, char* argv[]){
 	/* INITIALIZE */
 #ifdef HW_RVL
-  DI_Init();    // first
+	DI_Init();    // first
 #endif
 
 #ifdef DEBUGON
@@ -692,7 +692,7 @@ static void Initialise (void){
 		:: "n" (16<<8 | 5) : "r3");
 }
 
-void video_mode_init(GXRModeObj *videomode,unsigned int *fb1, unsigned int *fb2)
+void video_mode_init(GXRModeObj *videomode,u32 *fb1, u32 *fb2)
 {
 	vmode = videomode;
 	rmode = videomode;
