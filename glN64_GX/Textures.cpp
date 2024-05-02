@@ -12,6 +12,7 @@
 #ifdef __GX__
 #include <gccore.h>
 #include <ogc/lwp_heap.h>
+#include <ogc/machine/processor.h>
 #include <stdio.h>
 #include <malloc.h>
 #include <string.h>
@@ -26,6 +27,9 @@
 # include <stdlib.h>
 # ifndef min
 #  define min(a,b) ((a) < (b) ? (a) : (b))
+# endif
+# ifndef max
+#  define max(a,b) ((a) > (b) ? (a) : (b))
 # endif
 # define timeGetTime() time(NULL)
 #endif
@@ -97,6 +101,13 @@ inline u32 GXGetCI8IA_IA8( u64 *src, u16 x, u16 i, u8 palette )
 	return (u32) color;
 }
 
+inline u32 GXGetCI16IA_IA8( u64 *src, u16 x, u16 i, u8 palette )
+{
+	u16 color = *(u16*)(void*)&TMEM[256 + (u8)((u16*)src)[x^i]];
+	color = ((color & 0xff00) >> 8) | ((color & 0x00ff) << 8);
+	return (u32) color;
+}
+
 inline u32 GXGetCI4RGBA_RGB5A3( u64 *src, u16 x, u16 i, u8 palette )
 {
 	u8 ind4B = ((u8*)src)[(x>>1)^(i<<1)];
@@ -114,7 +125,15 @@ inline u32 GXGetCI8RGBA_RGB5A3( u64 *src, u16 x, u16 i, u8 palette )
 	else			c = 0x0000|(((c>>12)&0xF)<<8)|(((c>>7)&0xF)<<4)|((c>>2)&0xF);   //transparent texel
 	return (u32) c;
 }
- 
+
+inline u32 GXGetCI16RGBA_RGB5A3( u64 *src, u16 x, u16 i, u8 palette )
+{
+	u16 c = *(u16*)(void*)&TMEM[256 + (u8)((u16*)src)[x^i]];
+	if ((c&1) != 0)	c = 0x8000|(((c>>11)&0x1F)<<10)|(((c>>6)&0x1F)<<5)|((c>>1)&0x1F);   //opaque texel
+	else			c = 0x0000|(((c>>12)&0xF)<<8)|(((c>>7)&0xF)<<4)|((c>>2)&0xF);   //transparent texel
+	return (u32) c;
+}
+
 inline u32 GXGetI8_IA8( u64 *src, u16 x, u16 i, u8 palette )
 {
 	u8 color = ((u8*)src)[x^(i<<1)];
@@ -135,6 +154,48 @@ inline u32 GXGetRGBA5551_RGB5A3( u64 *src, u16 x, u16 i, u8 palette )
 	if ((c&1) != 0)		c = 0x8000|(((c>>11)&0x1F)<<10)|(((c>>6)&0x1F)<<5)|((c>>1)&0x1F);   //opaque texel
 	else				c = 0x0000|(((c>>12)&0xF)<<8)|(((c>>7)&0xF)<<4)|((c>>2)&0xF);   //transparent texel
 	return (u32) c;
+}
+
+inline u32 GXGetUYVY8888_RGBA8( u64 *src, u16 x, u16 i, u8 palette )
+{
+	u16 color = ((u16*)src)[x^i];
+	s32 y, u, v;
+	s32 r, g, b;
+
+	if (x & 1)
+	{
+		y = color & 0xFF;
+		v = (color >> 8) - 0x80;
+		color = ((u16*)src)[x^i^1];
+		u = (color >> 8) - 0x80;
+	}
+	else
+	{
+		y = color & 0xFF;
+		u = (color >> 8) - 0x80;
+		color = ((u16*)src)[x^i^1];
+		v = (color >> 8) - 0x80;
+	}
+
+	if (palette & 1)
+	{
+		g = y + ((gDP.convert.k1 * u + gDP.convert.k2 * v + 0x80) >> 8);
+		if (g & ~0xFF)
+			g = ~g >> 31 & 0xFF;
+		b = y + ((gDP.convert.k3 * u + 0x80) >> 8);
+		if (b & ~0xFF)
+			b = ~b >> 31 & 0xFF;
+		color = (g << 8) | b;
+	}
+	else
+	{
+		r = y + ((gDP.convert.k0 * v + 0x80) >> 8);
+		if (r & ~0xFF)
+			r = ~r >> 31 & 0xFF;
+		color = (y << 8) | r;
+	}
+
+	return (u32) color;
 }
 
 inline u32 GXGetRGBA8888_RGBA8( u64 *src, u16 x, u16 i, u8 palette )
@@ -315,36 +376,128 @@ const struct
 	u32				autoFormat; 
 #endif // !__GX__
 	u32				lineShift, maxTexels;
-} imageFormat[4][5] =
+} imageFormat[4][4][5] =
 #ifdef __GX__
-{ //		GetGX					GXtexfmt		GXsize	lineShift	maxTexels
-	{ // 4-bit
-		{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // CI (Banjo-Kazooie uses this, doesn't make sense, but it works...)
-		{	GetNone,				GX_TF_RGB5A3,	0,		4,			8192 }, // YUV
-		{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // CI
-		{	GXGetIA31_IA4,			GX_TF_IA4,		1,		4,			8192 }, // IA
-		{	GXGetI4_IA4,			GX_TF_IA4,		1,		4,			8192 }, // I
+{ //			GetGX					GXtexfmt		GXsize	lineShift	maxTexels
+	{ // G_TT_NONE
+		{ // 4-bit
+			{	GXGetI4_IA4,			GX_TF_IA4,		1,		4,			8192 }, // RGBA as I
+			{	GetNone,				GX_TF_I4,		0,		4,			8192 }, // YUV
+			{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // CI as I (FIXME)
+			{	GXGetIA31_IA4,			GX_TF_IA4,		1,		4,			8192 }, // IA
+			{	GXGetI4_IA4,			GX_TF_IA4,		1,		4,			8192 }, // I
+		},
+		{ // 8-bit
+			{	GXGetI8_IA8,			GX_TF_IA8,		2,		3,			4096 }, // RGBA as I
+			{	GetNone,				GX_TF_I4,		0,		3,			4096 }, // YUV
+			{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // CI as I (FIXME)
+			{	GXGetIA44_IA4,			GX_TF_IA4,		1,		3,			4096 }, // IA
+			{	GXGetI8_IA8,			GX_TF_IA8,		2,		3,			4096 }, // I
+		},
+		{ // 16-bit
+			{	GXGetRGBA5551_RGB5A3,	GX_TF_RGB5A3,	2,		2,			2048 }, // RGBA
+			{	GXGetUYVY8888_RGBA8,	GX_TF_RGBA8,	4,		2,			2048 }, // YUV
+			{	GXGetCI16RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		2,			1024 }, // CI as I (FIXME)
+			{	GXGetIA88_IA8,			GX_TF_IA8,		2,		2,			2048 }, // IA
+			{	GXGetIA88_IA8,			GX_TF_RGBA8,	4,		2,			2048 }, // I
+		},
+		{ // 32-bit
+			{	GXGetRGBA8888_RGBA8,	GX_TF_RGBA8,	4,		2,			1024 }, // RGBA
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // YUV
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // CI
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // IA
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // I
+		}
 	},
-	{ // 8-bit
-		{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // RGBA
-		{	GetNone,				GX_TF_RGB5A3,	0,		0,			4096 }, // YUV
-		{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // CI
-		{	GXGetIA44_IA4,			GX_TF_IA4,		1,		3,			4096 }, // IA
-		{	GXGetI8_IA8,			GX_TF_IA8,		2,		3,			4096 }, // I
+	{ // DUMMY
+		{ // 4-bit
+			{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // RGBA as CI
+			{	GetNone,				GX_TF_I4,		0,		4,			4096 }, // YUV as CI
+			{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // CI
+			{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // IA as CI
+			{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // I as CI
+		},
+		{ // 8-bit
+			{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // RGBA as CI
+			{	GetNone,				GX_TF_I4,		0,		3,			2048 }, // YUV as CI
+			{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // CI
+			{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // IA as CI
+			{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // I as CI
+		},
+		{ // 16-bit
+			{	GXGetCI16RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		2,			1024 }, // RGBA as CI
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // YUV as CI
+			{	GXGetCI16RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		2,			1024 }, // CI
+			{	GXGetCI16RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		2,			1024 }, // IA as CI
+			{	GXGetCI16RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		2,			1024 }, // I as CI
+		},
+		{ // 32-bit
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // RGBA
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // YUV
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // CI
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // IA
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // I
+		}
 	},
-	{ // 16-bit
-		{	GXGetRGBA5551_RGB5A3,	GX_TF_RGB5A3,	2,		2,			2048 }, // RGBA
-		{	GetNone,				GX_TF_RGB5A3,	0,		2,			2048 }, // YUV
-		{	GetNone,				GX_TF_RGB5A3,	0,		0,			2048 }, // CI
-		{	GXGetIA88_IA8,			GX_TF_IA8,		2,		2,			2048 }, // IA
-		{	GetNone,				GX_TF_RGB5A3,	0,		0,			2048 }, // I
+	{ // G_TT_RGBA16
+		{ // 4-bit
+			{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // RGBA as CI
+			{	GetNone,				GX_TF_I4,		0,		4,			4096 }, // YUV as CI
+			{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // CI
+			{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // IA as CI
+			{	GXGetCI4RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		4,			4096 }, // I as CI
+		},
+		{ // 8-bit
+			{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // RGBA as CI
+			{	GetNone,				GX_TF_I4,		0,		3,			2048 }, // YUV as CI
+			{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // CI
+			{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // IA as CI
+			{	GXGetCI8RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		3,			2048 }, // I as CI
+		},
+		{ // 16-bit
+			{	GXGetCI16RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		2,			1024 }, // RGBA as CI
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // YUV as CI
+			{	GXGetCI16RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		2,			1024 }, // CI
+			{	GXGetCI16RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		2,			1024 }, // IA as CI
+			{	GXGetCI16RGBA_RGB5A3,	GX_TF_RGB5A3,	2,		2,			1024 }, // I as CI
+		},
+		{ // 32-bit
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // RGBA
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // YUV
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // CI
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // IA
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // I
+		}
 	},
-	{ // 32-bit
-		{	GXGetRGBA8888_RGBA8,	GX_TF_RGBA8,	4,		2,			1024 }, // RGBA
-		{	GetNone,				GX_TF_RGB5A3,	0,		0,			1024 }, // YUV
-		{	GetNone,				GX_TF_RGB5A3,	0,		0,			1024 }, // CI
-		{	GetNone,				GX_TF_RGB5A3,	0,		0,			1024 }, // IA
-		{	GetNone,				GX_TF_RGB5A3,	0,		0,			1024 }, // I
+	{ // G_TT_IA16
+		{ // 4-bit
+			{	GXGetCI4IA_IA8,			GX_TF_IA8,		2,		4,			4096 }, // RGBA as CI
+			{	GetNone,				GX_TF_I4,		0,		4,			4096 }, // YUV as CI
+			{	GXGetCI4IA_IA8,			GX_TF_IA8,		2,		4,			4096 }, // CI
+			{	GXGetCI4IA_IA8,			GX_TF_IA8,		2,		4,			4096 }, // IA as CI
+			{	GXGetCI4IA_IA8,			GX_TF_IA8,		2,		4,			4096 }, // I as CI
+		},
+		{ // 8-bit
+			{	GXGetCI8IA_IA8,			GX_TF_IA8,		2,		3,			2048 }, // RGBA as CI
+			{	GetNone,				GX_TF_I4,		0,		3,			2048 }, // YUV as CI
+			{	GXGetCI8IA_IA8,			GX_TF_IA8,		2,		3,			2048 }, // CI
+			{	GXGetCI8IA_IA8,			GX_TF_IA8,		2,		3,			2048 }, // IA as CI
+			{	GXGetCI8IA_IA8,			GX_TF_IA8,		2,		3,			2048 }, // I as CI
+		},
+		{ // 16-bit
+			{	GXGetCI16IA_IA8,		GX_TF_IA8,		2,		2,			1024 }, // RGBA as CI
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // YUV as CI
+			{	GXGetCI16IA_IA8,		GX_TF_IA8,		2,		2,			1024 }, // CI
+			{	GXGetCI16IA_IA8,		GX_TF_IA8,		2,		2,			1024 }, // IA as CI
+			{	GXGetCI16IA_IA8,		GX_TF_IA8,		2,		2,			1024 }, // I as CI
+		},
+		{ // 32-bit
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // RGBA
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // YUV
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // CI
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // IA
+			{	GetNone,				GX_TF_I4,		0,		2,			1024 }, // I
+		}
 	}
 };
 #else // __GX__
@@ -441,7 +594,7 @@ void TextureCache_Init()
 	cache.dummy->clampT = 1;
 	cache.dummy->clampWidth = 2;
 	cache.dummy->clampHeight = 2;
-	cache.dummy->crc = 0;
+	cache.dummy->hash = 0;
 	cache.dummy->format = 0;
 	cache.dummy->size = 0;
 	cache.dummy->frameBufferTexture = FALSE;
@@ -466,35 +619,15 @@ void TextureCache_Init()
 //	cache.dummy->GXtexture = (u16*) memalign(32,cache.dummy->textureBytes);
 	cache.dummy->GXtexture = (u16*) __lwp_heap_allocate(GXtexCache,cache.dummy->textureBytes);
 	cache.dummy->GXtexfmt = GX_TF_RGBA8;
-	for (int i = 0; i<16; i+=4)
-	{
-		((u32*)cache.dummy->GXtexture)[i  ] = (u32) 0x0000FFFF;	//alternate white/black pixels
-		((u32*)cache.dummy->GXtexture)[i+1] = (u32) 0x0000FFFF;
-		((u32*)cache.dummy->GXtexture)[i+2] = (u32) 0xFFFF0000;
-		((u32*)cache.dummy->GXtexture)[i+3] = (u32) 0xFFFF0000;
-	}
+	DCZeroRange(cache.dummy->GXtexture, cache.dummy->textureBytes);
 	DCFlushRange(cache.dummy->GXtexture, cache.dummy->textureBytes);
-
-	//Init GXprimDepthZ textures
-	cache.GXprimDepthZ[0] = (CachedTexture*)malloc( sizeof( CachedTexture ) );
-	cache.GXprimDepthZ[1] = (CachedTexture*)malloc( sizeof( CachedTexture ) );
-	cache.GXprimDepthZ[0]->textureBytes = 32;
-	cache.GXprimDepthZ[1]->textureBytes = 32;
-	cache.GXprimDepthZ[0]->GXtexture = (u16*)memalign(32,cache.GXprimDepthZ[0]->textureBytes);
-	cache.GXprimDepthZ[1]->GXtexture = (u16*)memalign(32,cache.GXprimDepthZ[1]->textureBytes);
-	memset( cache.GXprimDepthZ[0]->GXtexture, 0x00, cache.GXprimDepthZ[0]->textureBytes);
-	memset( cache.GXprimDepthZ[1]->GXtexture, 0x00, cache.GXprimDepthZ[1]->textureBytes);
-	cache.cachedBytes += cache.GXprimDepthZ[0]->textureBytes;
-	cache.cachedBytes += cache.GXprimDepthZ[1]->textureBytes;
-
 #endif // __GX__
 
 	cache.cachedBytes = cache.dummy->textureBytes;
 
 	TextureCache_ActivateDummy( 0 );
 	TextureCache_ActivateDummy( 1 );
-
-	CRC_BuildTable();
+	TextureCache_ActivateDummy( 2 );
 }
 
 BOOL TextureCache_Verify()
@@ -673,16 +806,6 @@ void TextureCache_Destroy()
 //	glDeleteTextures( 1, &cache.glDummyName );
 #else // !__GX__
 	//For now we're not using Noise textures.
-
-	//De-Init GXprimDepthZ textures
-	cache.cachedBytes -= cache.GXprimDepthZ[0]->textureBytes;
-	cache.cachedBytes -= cache.GXprimDepthZ[1]->textureBytes;
-	if( cache.GXprimDepthZ[0]->GXtexture != NULL )
-		free(cache.GXprimDepthZ[0]->GXtexture);
-	if( cache.GXprimDepthZ[1]->GXtexture != NULL )
-		free(cache.GXprimDepthZ[1]->GXtexture);
-	free( cache.GXprimDepthZ[0] );
-	free( cache.GXprimDepthZ[1] );
 #endif // __GX__
 
 	cache.top = NULL;
@@ -691,7 +814,7 @@ void TextureCache_Destroy()
 
 void TextureCache_LoadBackground( CachedTexture *texInfo )
 {
-	u32 *dest = NULL, *scaledDest;
+	u8 *dest = NULL, *scaledDest;
 #ifndef __GX__
 	u8 *swapped;
 	GLuint			glInternalFormat;
@@ -781,22 +904,19 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 		}
 	}
 #else // !__GX__
-	if ((texInfo->format == G_IM_FMT_CI) && (gDP.otherMode.textureLUT == G_TT_IA16))
+	if (texInfo->format == G_IM_FMT_CI)
 	{
-		if (texInfo->size == G_IM_SIZ_4b)
-			GetTexel = GXGetCI4IA_IA8;
-		else
-			GetTexel = GXGetCI8IA_IA8;
+		GetTexel = imageFormat[G_TT_RGBA16][texInfo->size][texInfo->format].GetGX;
+		texInfo->GXtexfmt = imageFormat[G_TT_RGBA16][texInfo->size][texInfo->format].GXtexfmt;
+		GXsize = imageFormat[G_TT_RGBA16][texInfo->size][texInfo->format].GXsize;
+	}
+	else
+	{
+		GetTexel = imageFormat[G_TT_NONE][texInfo->size][texInfo->format].GetGX;
+		texInfo->GXtexfmt = imageFormat[G_TT_NONE][texInfo->size][texInfo->format].GXtexfmt;
+		GXsize = imageFormat[G_TT_NONE][texInfo->size][texInfo->format].GXsize;
+	}
 
-		texInfo->GXtexfmt = GX_TF_IA8;
-		GXsize = 2;
-	}
-		else
-	{
-		GetTexel = imageFormat[texInfo->size][texInfo->format].GetGX;
-		texInfo->GXtexfmt = imageFormat[texInfo->size][texInfo->format].GXtexfmt;
-		GXsize = imageFormat[texInfo->size][texInfo->format].GXsize;
-	}
 	//If realWidth or realHeight do not match the GX texture block size, then specify a compatible blocksize
 	int blockWidth = (GXsize == 1) ? 8 : 4;
 	int blockHeight = 4;
@@ -828,11 +948,11 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 
 	if (texInfo->textureBytes > 0)
 	{
-		dest = (u32*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
+		dest = (u8*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
 		while(!dest)
 		{
 			TextureCache_FreeNextTexture();
-			dest = (u32*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
+			dest = (u8*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
 		}
 	}
 	else
@@ -845,7 +965,6 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 	{
 		texInfo->GXtexture = (u16*) dest;
 
-		j = 0;
 		switch(GXsize)
 		{
 		case 1:	// 1 byte per GX texel -> GXGetIA31_IA4, GXGetI4_IA4, GXGetIA44_IA4
@@ -853,6 +972,8 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 			{
 				for (x = 0; x < texInfo->realWidth; x+=8)
 				{
+					j = 0;
+					__asm__ volatile("dcbz %y0" : "=Z"(*dest) :: "memory");
 					for (k = 0; k < 4; k++)
 					{
 						ty = min(y+k, clampTClamp);
@@ -860,17 +981,22 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 						for (l = 0; l < 8; l++)
 						{
 							tx = min(x+l, clampSClamp);
-							((u8*)texInfo->GXtexture)[j++] = (u8) GetTexel( (u64*)src, tx, 0, texInfo->palette );
+							((u8*)dest)[j++] = (u8) GetTexel( (u64*)src, tx, 0, texInfo->palette );
 						}
 					}
+					__asm__ volatile("dcbf %y0" : "=Z"(*dest) :: "memory");
+					dest += 32;
 				}
 			}
+			_sync();
 			break;
 		case 2: // 2 bytes per GX texel -> GXGetCI4RGBA_RGB5A3, GXGetCI8RGBA_RGB5A3, GXGetI8_IA8, GXGetRGBA5551_RGB5A3, GXGetIA88_IA8, GXGetCI4IA_IA8, GXGetCI8IA_IA8
 			for (y = 0; y < texInfo->realHeight; y+=4)
 			{
 				for (x = 0; x < texInfo->realWidth; x+=4)
 				{
+					j = 0;
+					__asm__ volatile("dcbz %y0" : "=Z"(*dest) :: "memory");
 					for (k = 0; k < 4; k++)
 					{
 						ty = min(y+k, clampTClamp);
@@ -878,17 +1004,23 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 						for (l = 0; l < 4; l++)
 						{
 							tx = min(x+l, clampSClamp);
-							((u16*)texInfo->GXtexture)[j++] = (u16) GetTexel( (u64*)src, tx, 0, texInfo->palette );
+							((u16*)dest)[j++] = (u16) GetTexel( (u64*)src, tx, 0, texInfo->palette );
 						}
 					}
+					__asm__ volatile("dcbf %y0" : "=Z"(*dest) :: "memory");
+					dest += 32;
 				}
 			}
+			_sync();
 			break;
 		case 4: // 4 bytes per GX texel -> GXGetRGBA8888_RGBA8
 			for (y = 0; y < texInfo->realHeight; y+=4)
 			{
 				for (x = 0; x < texInfo->realWidth; x+=4)
 				{
+					j = 0;
+					__asm__ volatile("dcbz %y0" : "=Z"(dest[0]) :: "memory");
+					__asm__ volatile("dcbz %y0" : "=Z"(dest[32]) :: "memory");
 					for (k = 0; k < 4; k++)
 					{
 						ty = min(y+k, clampTClamp);
@@ -896,14 +1028,17 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 						for (l = 0; l < 4; l++)
 						{
 							tx = min(x+l, clampSClamp);
-							((u16*)texInfo->GXtexture)[j] =		(u16) GetTexel( (u64*)src, tx, 0, 0 );	// AARR texels
-							((u16*)texInfo->GXtexture)[j+16] =	(u16) GetTexel( (u64*)src, tx, 0, 1 );	// GGBB texels -> next 32B block
+							((u16*)dest)[j] =		(u16) GetTexel( (u64*)src, tx, 0, 0 );	// AARR texels
+							((u16*)dest)[j+16] =	(u16) GetTexel( (u64*)src, tx, 0, 1 );	// GGBB texels -> next 32B block
 							j++;
 						}
 					}
-					j += 16;	// skip 2nd half of 64B cache line
+					__asm__ volatile("dcbf %y0" : "=Z"(dest[0]) :: "memory");
+					__asm__ volatile("dcbf %y0" : "=Z"(dest[32]) :: "memory");
+					dest += 64;
 				}
 			}
+			_sync();
 			break;
 		default:
 			DEBUG_print((char*)"Textures: Converting Invalid Texture Format",DBG_TXINFO);
@@ -940,11 +1075,11 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 		
 		texInfo->textureBytes <<= 2;
 
-		scaledDest = (u32*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
+		scaledDest = (u8*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
 		while(!scaledDest)
 		{
 			TextureCache_FreeNextTexture();
-			scaledDest = (u32*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
+			scaledDest = (u8*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
 		}
 
 		Interpolator* interpolator;
@@ -964,7 +1099,7 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 
 		texInfo->GXtexture = (u16*) scaledDest;
 		__lwp_heap_free(GXtexCache, dest);
-
+		DCFlushRange(scaledDest, texInfo->textureBytes);
 	}	//	cache.enable2xSaI
 #endif // __GX__
 
@@ -1005,15 +1140,12 @@ void TextureCache_LoadBackground( CachedTexture *texInfo )
 		free (swapped );
 		free( dest );
 	}
-#else // !__GX__
-	//2xSaI textures will not be implemented for now.
-	DCFlushRange(texInfo->GXtexture, texInfo->textureBytes);
 #endif // __GX__
 }
 
 void TextureCache_Load( CachedTexture *texInfo )
 {
-	u32 *dest = NULL, *scaledDest;
+	u8 *dest = NULL, *scaledDest;
 #ifndef __GX__
 	GLuint			glInternalFormat;
 	GLenum			glType;
@@ -1071,22 +1203,11 @@ void TextureCache_Load( CachedTexture *texInfo )
 	}
 	dest = (u32*)malloc( texInfo->textureBytes );
 #else // !__GX__
-	if ((texInfo->format == G_IM_FMT_CI) && (gDP.otherMode.textureLUT == G_TT_IA16))
-	{
-		if (texInfo->size == G_IM_SIZ_4b)
-			GetTexel = GXGetCI4IA_IA8;
-		else
-			GetTexel = GXGetCI8IA_IA8;
 
-		texInfo->GXtexfmt = GX_TF_IA8;
-		GXsize = 2;
-	}
-		else
-	{
-		GetTexel = imageFormat[texInfo->size][texInfo->format].GetGX;
-		texInfo->GXtexfmt = imageFormat[texInfo->size][texInfo->format].GXtexfmt;
-		GXsize = imageFormat[texInfo->size][texInfo->format].GXsize;
-	}
+	GetTexel = imageFormat[gDP.otherMode.textureLUT][texInfo->size][texInfo->format].GetGX;
+	texInfo->GXtexfmt = imageFormat[gDP.otherMode.textureLUT][texInfo->size][texInfo->format].GXtexfmt;
+	GXsize = imageFormat[gDP.otherMode.textureLUT][texInfo->size][texInfo->format].GXsize;
+
 	//If realWidth or realHeight do not match the GX texture block size, then specify a compatible blocksize
 	int blockWidth = (GXsize == 1) ? 8 : 4;
 	int blockHeight = 4;
@@ -1110,11 +1231,11 @@ void TextureCache_Load( CachedTexture *texInfo )
 	texInfo->textureBytes = (texInfo->GXrealWidth * texInfo->GXrealHeight) * GXsize;
 	if (texInfo->textureBytes > 0)
 	{
-		dest = (u32*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
+		dest = (u8*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
 		while(!dest)
 		{
 			TextureCache_FreeNextTexture();
-			dest = (u32*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
+			dest = (u8*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
 		}
 	}
 	else
@@ -1124,7 +1245,7 @@ void TextureCache_Load( CachedTexture *texInfo )
 
 	line = texInfo->line;
 
-	if (texInfo->size == G_IM_SIZ_32b)
+	if (((texInfo->format == G_IM_FMT_YUV) && (texInfo->size == G_IM_SIZ_16b)) || (texInfo->size == G_IM_SIZ_32b))
 		line <<= 1;
 
 	if (texInfo->maskS)
@@ -1135,7 +1256,7 @@ void TextureCache_Load( CachedTexture *texInfo )
 	}
 	else
 	{
-		clampSClamp = min( texInfo->clampWidth, texInfo->width ) - 1;
+		clampSClamp = texInfo->clampS ? texInfo->clampWidth - 1 : texInfo->width - 1;
 		maskSMask = 0xFFFF;
 		mirrorSBit = 0x0000;
 	}
@@ -1148,21 +1269,16 @@ void TextureCache_Load( CachedTexture *texInfo )
 	}
 	else
 	{
-		clampTClamp = min( texInfo->clampHeight, texInfo->height ) - 1;
+		clampTClamp = texInfo->clampT ? texInfo->clampHeight - 1 : texInfo->height - 1;
 		maskTMask = 0xFFFF;
 		mirrorTBit = 0x0000;
 	}
-
-	// Hack for Zelda warp texture
-	if (((texInfo->tMem << 3) + (texInfo->width * texInfo->height << texInfo->size >> 1)) > 4096)
-		texInfo->tMem = 0;
 
 #ifdef __GX__
 	texInfo->GXtexture = (u16*) dest;
 
 	if (!cache.enable2xSaI)
 	{
-		j = 0;
 		switch(GXsize)
 		{
 		case 1:	// 1 byte per GX texel -> GXGetIA31_IA4, GXGetI4_IA4, GXGetIA44_IA4
@@ -1170,72 +1286,88 @@ void TextureCache_Load( CachedTexture *texInfo )
 			{
 				for (x = 0; x < texInfo->realWidth; x+=8)
 				{
+					j = 0;
+					__asm__ volatile("dcbz %y0" : "=Z"(*dest) :: "memory");
 					for (k = 0; k < 4; k++)
 					{
 						ty = min(y+k, clampTClamp) & maskTMask;
 						if ((y+k) & mirrorTBit)
 							ty ^= maskTMask;
-						src = &TMEM[texInfo->tMem] + line * ty;
+						src = &TMEM[(texInfo->tMem + line * ty) & 0x1FF];
 						i = (ty & 1) << 1;
 						for (l = 0; l < 8; l++)
 						{
 							tx = min(x+l, clampSClamp) & maskSMask;
 							if ((x+l) & mirrorSBit)
 								tx ^= maskSMask;
-							((u8*)texInfo->GXtexture)[j++] = (u8) GetTexel( src, tx, i, texInfo->palette );
+							((u8*)dest)[j++] = (u8) GetTexel( src, tx, i, texInfo->palette );
 						}
 					}
+					__asm__ volatile("dcbf %y0" : "=Z"(*dest) :: "memory");
+					dest += 32;
 				}
 			}
+			_sync();
 			break;
 		case 2: // 2 bytes per GX texel -> GXGetCI4RGBA_RGB5A3, GXGetCI8RGBA_RGB5A3, GXGetI8_IA8, GXGetRGBA5551_RGB5A3, GXGetIA88_IA8, GXGetCI4IA_IA8, GXGetCI8IA_IA8
 			for (y = 0; y < texInfo->realHeight; y+=4)
 			{
 				for (x = 0; x < texInfo->realWidth; x+=4)
 				{
+					j = 0;
+					__asm__ volatile("dcbz %y0" : "=Z"(*dest) :: "memory");
 					for (k = 0; k < 4; k++)
 					{
 						ty = min(y+k, clampTClamp) & maskTMask;
 						if ((y+k) & mirrorTBit)
 							ty ^= maskTMask;
-						src = &TMEM[texInfo->tMem] + line * ty;
+						src = &TMEM[(texInfo->tMem + line * ty) & 0x1FF];
 						i = (ty & 1) << 1;
 						for (l = 0; l < 4; l++)
 						{
 							tx = min(x+l, clampSClamp) & maskSMask;
 							if ((x+l) & mirrorSBit)
 								tx ^= maskSMask;
-							((u16*)texInfo->GXtexture)[j++] = (u16) GetTexel( src, tx, i, texInfo->palette );
+							((u16*)dest)[j++] = (u16) GetTexel( src, tx, i, texInfo->palette );
 						}
 					}
+					__asm__ volatile("dcbf %y0" : "=Z"(*dest) :: "memory");
+					dest += 32;
 				}
 			}
+			_sync();
 			break;
 		case 4: // 4 bytes per GX texel -> GXGetRGBA8888_RGBA8
 			for (y = 0; y < texInfo->realHeight; y+=4)
 			{
 				for (x = 0; x < texInfo->realWidth; x+=4)
 				{
+					j = 0;
+					__asm__ volatile("dcbz %y0" : "=Z"(dest[0]) :: "memory");
+					__asm__ volatile("dcbz %y0" : "=Z"(dest[32]) :: "memory");
 					for (k = 0; k < 4; k++)
 					{
 						ty = min(y+k, clampTClamp) & maskTMask;
 						if ((y+k) & mirrorTBit)
 							ty ^= maskTMask;
-						src = &TMEM[texInfo->tMem] + line * ty;
+						src = &TMEM[(texInfo->tMem + line * ty) & 0x1FF];
 						i = (ty & 1) << 1;
 						for (l = 0; l < 4; l++)
 						{
 							tx = min(x+l, clampSClamp) & maskSMask;
 							if ((x+l) & mirrorSBit)
 								tx ^= maskSMask;
-							((u16*)texInfo->GXtexture)[j] =		(u16) GetTexel( src, tx, i, 0 );	// AARR texels
-							((u16*)texInfo->GXtexture)[j+16] =	(u16) GetTexel( src, tx, i, 1 );	// GGBB texels -> next 32B block
+							((u16*)dest)[j] =		(u16) GetTexel( src, tx, i, 0 );	// AARR texels
+							((u16*)dest)[j+16] =	(u16) GetTexel( src, tx, i, 1 );	// GGBB texels -> next 32B block
 							j++;
 						}
 					}
-					j += 16;	// skip 2nd half of 64B cache line
+					__asm__ volatile("dcbf %y0" : "=Z"(dest[0]) :: "memory");
+					__asm__ volatile("dcbf %y0" : "=Z"(dest[32]) :: "memory");
+					dest += 64;
 				}
 			}
+			_sync();
 			break;
 		default:
 			DEBUG_print((char*)"Textures: Converting Invalid Texture Format",DBG_TXINFO);
@@ -1251,7 +1383,7 @@ void TextureCache_Load( CachedTexture *texInfo )
 			if (y & mirrorTBit)
 				ty ^= maskTMask;
 	
-			src = &TMEM[texInfo->tMem] + line * ty;
+			src = &TMEM[(texInfo->tMem + line * ty) & 0x1FF];
 	
 			i = (ty & 1) << 1;
 			for (x = 0; x < texInfo->realWidth; x++)
@@ -1280,11 +1412,11 @@ void TextureCache_Load( CachedTexture *texInfo )
 		
 		texInfo->textureBytes <<= 2;
 
-		scaledDest = (u32*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
+		scaledDest = (u8*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
 		while(!scaledDest)
 		{
 			TextureCache_FreeNextTexture();
-			scaledDest = (u32*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
+			scaledDest = (u8*) __lwp_heap_allocate(GXtexCache,texInfo->textureBytes);
 		}
 
 		Interpolator* interpolator;
@@ -1304,7 +1436,7 @@ void TextureCache_Load( CachedTexture *texInfo )
 
 		texInfo->GXtexture = (u16*) scaledDest;
 		__lwp_heap_free(GXtexCache, dest);
-
+		DCFlushRange(scaledDest, texInfo->textureBytes);
 	} 	//	cache.enable2xSaI
 #else // __GX__
 	j = 0;
@@ -1366,21 +1498,14 @@ void TextureCache_Load( CachedTexture *texInfo )
 		free( dest );
 	}
 #endif // !__GX__
-
-#ifdef __GX__
-	//2xSaI textures will not be implemented for now.
-	if(texInfo->GXtexture != NULL)
-		DCFlushRange(texInfo->GXtexture, texInfo->textureBytes);
-#endif // __GX__
 }
 
-u32 TextureCache_CalculateCRC( u32 t, u32 width, u32 height )
+u32 TextureCache_CalculateHash( u32 t, u32 width, u32 height )
 {
-	u32 crc;
+	u32 hash;
 	u32 y, /*i,*/ bpl, lineBytes, line;
 	u64 *src;
 
-	src = (u64*)&TMEM[gSP.textureTile[t]->tmem];
 	bpl = width << gSP.textureTile[t]->size >> 1;
 	lineBytes = gSP.textureTile[t]->line << 3;
 
@@ -1388,22 +1513,21 @@ u32 TextureCache_CalculateCRC( u32 t, u32 width, u32 height )
  	if (gSP.textureTile[t]->size == G_IM_SIZ_32b)
 		line <<= 1;
 
-	crc = 0xFFFFFFFF;
+	hash = 0;
  	for (y = 0; y < height; y++)
 	{
-		crc = CRC_Calculate( crc, src, bpl );
-
-		src += line;
+		src = (u64*)&TMEM[(gSP.textureTile[t]->tmem + line * y) & 0x1FF];
+		hash = Hash_Calculate( hash, src, bpl );
 	}
 
-   	if (gSP.textureTile[t]->format == G_IM_FMT_CI)
+	if ((gDP.otherMode.textureLUT != G_TT_NONE) || (gSP.textureTile[t]->format == G_IM_FMT_CI))
 	{
 		if (gSP.textureTile[t]->size == G_IM_SIZ_4b)
-			crc = CRC_Calculate( crc, &gDP.paletteCRC16[gSP.textureTile[t]->palette], 4 );
-		else if (gSP.textureTile[t]->size == G_IM_SIZ_8b)
-			crc = CRC_Calculate( crc, &gDP.paletteCRC256, 4 );
+			hash = Hash_Calculate( hash, &TMEM[0x100 + (gSP.textureTile[t]->palette << 4)], 128 );
+		else if ((gSP.textureTile[t]->size == G_IM_SIZ_8b) || (gSP.textureTile[t]->size == G_IM_SIZ_16b))
+			hash = Hash_Calculate( hash, &TMEM[0x100], 2048 );
 	}
-	return crc;
+	return hash;
 }
 
 void TextureCache_ActivateTexture( u32 t, CachedTexture *texture )
@@ -1445,7 +1569,10 @@ void TextureCache_ActivateTexture( u32 t, CachedTexture *texture )
 			GX_InitTexObj(&texture->GXtex, texture->GXtexture, (u16) texture->realWidth, (u16) texture->realHeight, texture->GXtexfmt, 
 				texture->clampS ? GX_CLAMP : GX_REPEAT, 
 				texture->clampT ? GX_CLAMP : GX_REPEAT, GX_FALSE); 
-		if (OGL.GXuseMinMagNearest) GX_InitTexObjLOD(&texture->GXtex, GX_NEAR, GX_NEAR, 0.0f, 0.0f, 0.0f, GX_FALSE, GX_FALSE, GX_ANISO_1);
+		if (texture->frameBufferTexture || OGL.GXuseMinMagNearest)
+			GX_InitTexObjLOD(&texture->GXtex, GX_NEAR, GX_NEAR, 0.0f, 0.0f, 0.0f, GX_FALSE, GX_FALSE, GX_ANISO_1);
+		else
+			GX_InitTexObjLOD(&texture->GXtex, GX_LINEAR, GX_LINEAR, 0.0f, 0.0f, 0.0f, GX_TRUE, GX_TRUE, GX_ANISO_4);
 		GX_LoadTexObj(&texture->GXtex, t); // t = 0 is GX_TEXMAP0 and t = 1 is GX_TEXMAP1
 		OGL.GXuseMinMagNearest = false;
 #ifdef GLN64_SDLOG
@@ -1490,23 +1617,23 @@ void TextureCache_ActivateDummy( u32 t )
 void TextureCache_UpdateBackground()
 {
 	u32 numBytes = gSP.bgImage.width * gSP.bgImage.height << gSP.bgImage.size >> 1;
-	u32 crc;
+	u32 hash;
 
-	crc = CRC_Calculate( 0xFFFFFFFF, &RDRAM[gSP.bgImage.address], numBytes );
+	hash = Hash_Calculate( 0, &RDRAM[gSP.bgImage.address], numBytes );
 
    	if (gSP.bgImage.format == G_IM_FMT_CI)
 	{
 		if (gSP.bgImage.size == G_IM_SIZ_4b)
-			crc = CRC_Calculate( crc, &gDP.paletteCRC16[gSP.bgImage.palette], 4 );
+			hash = Hash_Calculate( hash, &TMEM[0x100 + (gSP.bgImage.palette << 4)], 128 );
 		else if (gSP.bgImage.size == G_IM_SIZ_8b)
-			crc = CRC_Calculate( crc, &gDP.paletteCRC256, 4 );
+			hash = Hash_Calculate( hash, &TMEM[0x100], 2048 );
 	}
 
 	CachedTexture *current = cache.top;
 
  	while (current)
   	{
-		if ((current->crc == crc) &&
+		if ((current->hash == hash) &&
 			(current->width == gSP.bgImage.width) &&
 			(current->height == gSP.bgImage.height) &&
 			(current->format == gSP.bgImage.format) &&
@@ -1537,7 +1664,7 @@ void TextureCache_UpdateBackground()
 #endif // !__GX__
 
 	cache.current[0]->address = gSP.bgImage.address;
-	cache.current[0]->crc = crc;
+	cache.current[0]->hash = hash;
 
 	cache.current[0]->format = gSP.bgImage.format;
 	cache.current[0]->size = gSP.bgImage.size;
@@ -1579,7 +1706,7 @@ void TextureCache_Update( u32 t )
 {
 	CachedTexture *current;
 	//s32 i, j, k;
-	u32 crc, /*bpl, cacheNum,*/ maxTexels;
+	u32 hash, /*bpl, cacheNum,*/ maxTexels;
 	u32 tileWidth, maskWidth, loadWidth, lineWidth, clampWidth, height;
 	u32 tileHeight, maskHeight, loadHeight, lineHeight, clampHeight, width;
 
@@ -1610,7 +1737,7 @@ void TextureCache_Update( u32 t )
 		return;
 	}
 
-	maxTexels = imageFormat[gSP.textureTile[t]->size][gSP.textureTile[t]->format].maxTexels;
+	maxTexels = imageFormat[gDP.otherMode.textureLUT][gSP.textureTile[t]->size][gSP.textureTile[t]->format].maxTexels;
 
 	// Here comes a bunch of code that just calculates the texture size...I wish there was an easier way...
 	tileWidth = gSP.textureTile[t]->lrs - gSP.textureTile[t]->uls + 1;
@@ -1622,7 +1749,7 @@ void TextureCache_Update( u32 t )
 	loadWidth = gDP.loadTile->lrs - gDP.loadTile->uls + 1;
 	loadHeight = gDP.loadTile->lrt - gDP.loadTile->ult + 1;
 
-	lineWidth = gSP.textureTile[t]->line << imageFormat[gSP.textureTile[t]->size][gSP.textureTile[t]->format].lineShift;
+	lineWidth = gSP.textureTile[t]->line << imageFormat[gDP.otherMode.textureLUT][gSP.textureTile[t]->size][gSP.textureTile[t]->format].lineShift;
 
 	if (lineWidth) // Don't allow division by zero
 		lineHeight = min( maxTexels / lineWidth, tileHeight );
@@ -1721,7 +1848,7 @@ void TextureCache_Update( u32 t )
 		maskHeight = 1 << gSP.textureTile[t]->maskt;
 	}
 
-	crc = TextureCache_CalculateCRC( t, width, height );
+	hash = TextureCache_CalculateHash( t, width, height );
 
 //	if (!TextureCache_Verify())
 //		current = cache.top;
@@ -1729,7 +1856,7 @@ void TextureCache_Update( u32 t )
 	current = cache.top;
  	while (current)
   	{
-		if ((current->crc == crc) &&
+		if ((current->hash == hash) &&
 //			(current->address == gDP.textureImage.address) &&
 //			(current->palette == gSP.textureTile[t]->palette) &&
 			(current->width == width) &&
@@ -1775,7 +1902,7 @@ void TextureCache_Update( u32 t )
 #endif // !__GX__
 
 	cache.current[t]->address = gDP.textureImage.address;
-	cache.current[t]->crc = crc;
+	cache.current[t]->hash = hash;
 
 	cache.current[t]->format = gSP.textureTile[t]->format;
 	cache.current[t]->size = gSP.textureTile[t]->size;
@@ -1897,27 +2024,5 @@ void TextureCache_FreeNextTexture()
 		}
 		FrameBuffer_RemoveBottom();
 	}
-}
-
-void TextureCache_UpdatePrimDepthZtex( f32 z )
-{
-	//This function sets a Ztex to gDP.primDepth.z which is in the range [0,1]
-	//Called from gDPSetPrimDepth()
-
-	// Let GX finish with all previous commands before loading the new tex
-	// TODO: Work around this with tokens.
-	GX_DrawDone();
-
-	u16 primDepthval = (u16) (z * 65535.0f);
-	for (int i = 0; i < 16; i++)
-		cache.GXprimDepthZ[0]->GXtexture[i] = primDepthval;
-	if(cache.GXprimDepthZ[0]->GXtexture != NULL)
-	{
-		DCFlushRange(cache.GXprimDepthZ[0]->GXtexture, cache.GXprimDepthZ[0]->textureBytes);
-		GX_InitTexObj(&cache.GXprimDepthZ[0]->GXtex, cache.GXprimDepthZ[0]->GXtexture, (u16) 4, (u16) 4, GX_TF_Z16, 
-			GX_CLAMP, GX_CLAMP, GX_FALSE); 
-		GX_LoadTexObj(&cache.GXprimDepthZ[0]->GXtex, GX_TEXMAP2);
-	}
-	cache.GXprimDepthCnt++;
 }
 #endif // __GX__

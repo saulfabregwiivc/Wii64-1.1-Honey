@@ -64,7 +64,7 @@ static int   ROMBlocksLRU[NUM_BLOCKS];
 static fileBrowser_file* ROMFile;
 static char readBefore = 0;
 
-extern void showLoadProgress(float);
+//extern void showLoadProgress(float);
 extern void pauseAudio(void);
 extern void resumeAudio(void);
 extern BOOL hasLoadedROM;
@@ -106,7 +106,7 @@ void* ROMCache_pointer(u32 rom_offset){
 static void ROMCache_load_block(char* dst, u32 rom_offset){
   if((hasLoadedROM) && (!stop))
     pauseAudio();
-	showLoadProgress( 1.0f );
+//	showLoadProgress( 1.0f );
 	u32 offset = 0, bytes_read, loads_til_update = 0;
 	romFile_seekFile(ROMFile, rom_offset, FILE_BROWSER_SEEK_SET);
 	while(offset < BLOCK_SIZE){

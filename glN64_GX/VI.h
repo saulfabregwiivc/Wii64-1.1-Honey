@@ -39,13 +39,14 @@ void VI_GX_setFB(unsigned int* fb1, unsigned int* fb2);
 unsigned int* VI_GX_getScreenPointer();
 void VI_GX_clearEFB();
 void VI_GX_showFPS();
-void VI_GX_showLoadProg(float percent);
+void VI_GX_showLoadIcon();
 void VI_GX_updateDEBUG();
 void VI_GX_showDEBUG();
 void VI_GX_showStats();
 void VI_GX_cleanUp();
 void VI_GX_renderCpuFramebuffer();
 void VI_GX_PreRetraceCallback(u32 retraceCnt);
+void VI_GX_DrawSyncCallback(u16 token);
 
 #endif // __GX__
 

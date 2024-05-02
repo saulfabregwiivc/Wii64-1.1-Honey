@@ -47,9 +47,6 @@ struct GLVertex
 	} color, secondaryColor;
 	float s0, t0, s1, t1;
 	float fog;
-#ifdef __GX__
-	float zPrime;
-#endif //__GX__
 };
 
 struct GLInfo
@@ -112,17 +109,14 @@ struct GLInfo
 	BYTE	combiner;
 
 #ifdef __GX__	//Variables specific to GX
-	int		GXorigX, GXorigY;
-	int		GXwidth, GXheight;
+	u32		GXorigX, GXorigY;
+	u32		GXwidth, GXheight;
 	float	GXscaleX, GXscaleY;
-	float	GXzPrimeScale, GXzPrimeTranslate;
 	Mtx44	GXcombW;
-	Mtx44	GXprojWnear;
 	Mtx44	GXprojIdent;
 	Mtx44	GXprojTemp;
 	Mtx		GXmodelViewIdent;
 	BOOL	GXuseCombW;
-	BOOL	GXuseProjWnear;
 	BOOL	GXupdateMtx;
 	int		GXnumVtxMP;
 	bool	GXuseAlphaCompare;

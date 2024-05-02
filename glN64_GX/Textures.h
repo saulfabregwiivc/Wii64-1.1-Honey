@@ -37,7 +37,7 @@ struct CachedTexture
 
 	GLuint	glName;
 	u32		address;
-	u32		crc;
+	u32		hash;
 //	float	fulS, fulT;
 //	WORD	ulS, ulT, lrS, lrT;
 	float	offsetS, offsetT;
@@ -78,7 +78,6 @@ struct TextureCache
 	u32				enable2xSaI, bitDepth;
 #ifdef __GX__
 	int				VIcount;
-	CachedTexture	*(GXprimDepthZ[2]);
 	u32				GXprimDepthCnt,GXZTexPrimCnt,GXnoZTexPrimCnt;
 #endif // __GX__
 };
@@ -130,7 +129,6 @@ void TextureCache_ActivateDummy( u32 t );
 BOOL TextureCache_Verify();
 #ifdef __GX__
 void TextureCache_FreeNextTexture();
-void TextureCache_UpdatePrimDepthZtex( f32 z );
 #endif // __GX__
 
 #endif

@@ -35,13 +35,13 @@
 #endif // __GX__
 
 #ifdef __LINUX__
-#include <stdlib.h>
 # ifndef min
 #  define min(a,b) ((a) < (b) ? (a) : (b))
 # endif
 # ifndef max
 #  define max(a,b) ((a) > (b) ? (a) : (b))
 # endif
+#include <stdlib.h>
 #endif
 
 gDPInfo gDP;
@@ -82,15 +82,16 @@ void gDPSetOtherMode( u32 mode0, u32 mode1 )
 
 void gDPSetPrimDepth( u16 z, u16 dz )
 {
-	gDP.primDepth.z = min( 1.0f, max( 0.0f, (_FIXED2FLOAT( z, 15 ) - gSP.viewport.vtrans[2]) / gSP.viewport.vscale[2] ) );
-	gDP.primDepth.deltaZ = dz;
+	gDP.primDepth.z = _FIXED2FLOAT( _SHIFTR( z, 0, 15 ), 15 );
+	gDP.primDepth.deltaZ = _FIXED2FLOAT( _SHIFTR( dz, 0, 15 ), 15 );
 
 #ifdef __GX__
+	gDP.changed |= CHANGED_RENDERMODE;
+
 #ifdef SHOW_DEBUG
 	sprintf(txtbuffer,"gDP: Setting PrimDepth to %f", gDP.primDepth.z);
 	DEBUG_print(txtbuffer,DBG_RSPINFO1);
 #endif
-	TextureCache_UpdatePrimDepthZtex(gDP.primDepth.z);
 #endif //__GX__
 
 #ifdef DEBUG
@@ -230,11 +231,6 @@ void gDPSetDepthSource( u32 source )
 
 #ifdef __GX__
 	gDP.changed |= CHANGED_RENDERMODE;
-
-/*	if (gDP.otherMode.depthSource == G_ZS_PRIM)
-		GX_SetZTexture(GX_ZT_REPLACE,GX_TF_Z16,0);
-	else
-		GX_SetZTexture(GX_ZT_DISABLE,GX_TF_Z16,0);*/
 #endif // __GX__
 
 #ifdef DEBUG
@@ -465,10 +461,10 @@ void gDPSetDepthImage( u32 address )
 
 void gDPSetEnvColor( u32 r, u32 g, u32 b, u32 a )
 {
-	gDP.envColor.r = r * 0.0039215689f;
-	gDP.envColor.g = g * 0.0039215689f;
-	gDP.envColor.b = b * 0.0039215689f;
-	gDP.envColor.a = a * 0.0039215689f;
+	gDP.envColor.r = GXcastu8f32( r );
+	gDP.envColor.g = GXcastu8f32( g );
+	gDP.envColor.b = GXcastu8f32( b );
+	gDP.envColor.a = GXcastu8f32( a );
 
 	gDP.changed |= CHANGED_COMBINE_COLORS;
 
@@ -480,10 +476,10 @@ void gDPSetEnvColor( u32 r, u32 g, u32 b, u32 a )
 
 void gDPSetBlendColor( u32 r, u32 g, u32 b, u32 a )
 {
-	gDP.blendColor.r = r * 0.0039215689f;
-	gDP.blendColor.g = g * 0.0039215689f;
-	gDP.blendColor.b = b * 0.0039215689f;
-	gDP.blendColor.a = a * 0.0039215689f;
+	gDP.blendColor.r = GXcastu8f32( r );
+	gDP.blendColor.g = GXcastu8f32( g );
+	gDP.blendColor.b = GXcastu8f32( b );
+	gDP.blendColor.a = GXcastu8f32( a );
 
 #ifdef DEBUG
 	DebugMsg( DEBUG_HIGH | DEBUG_HANDLED, "gDPSetBlendColor( %i, %i, %i, %i );\n",
@@ -493,10 +489,10 @@ void gDPSetBlendColor( u32 r, u32 g, u32 b, u32 a )
 
 void gDPSetFogColor( u32 r, u32 g, u32 b, u32 a )
 {
-	gDP.fogColor.r = r * 0.0039215689f;
-	gDP.fogColor.g = g * 0.0039215689f;
-	gDP.fogColor.b = b * 0.0039215689f;
-	gDP.fogColor.a = a * 0.0039215689f;
+	gDP.fogColor.r = GXcastu8f32( r );
+	gDP.fogColor.g = GXcastu8f32( g );
+	gDP.fogColor.b = GXcastu8f32( b );
+	gDP.fogColor.a = GXcastu8f32( a );
 
 	gDP.changed |= CHANGED_FOGCOLOR;
 
@@ -508,13 +504,13 @@ void gDPSetFogColor( u32 r, u32 g, u32 b, u32 a )
 
 void gDPSetFillColor( u32 c )
 {
-	gDP.fillColor.r = _SHIFTR( c, 11, 5 ) * 0.032258064f;
-	gDP.fillColor.g = _SHIFTR( c,  6, 5 ) * 0.032258064f;
-	gDP.fillColor.b = _SHIFTR( c,  1, 5 ) * 0.032258064f;
-	gDP.fillColor.a = _SHIFTR( c,  0, 1 );
+	gDP.fillColor.r = _FIXED2FLOAT( (u8)_SHIFTR( c, 11, 5 ), 5);
+	gDP.fillColor.g = _FIXED2FLOAT( (u8)_SHIFTR( c,  6, 5 ), 5);
+	gDP.fillColor.b = _FIXED2FLOAT( (u8)_SHIFTR( c,  1, 5 ), 5);
+	gDP.fillColor.a = (u8)_SHIFTR( c, 0, 1 );
 
-	gDP.fillColor.z = _SHIFTR( c,  2, 14 );
-	gDP.fillColor.dz = _SHIFTR( c, 0, 2 );
+	gDP.fillColor.z = (u16)_SHIFTR( c, 2, 14 );
+	gDP.fillColor.dz = (u8)_SHIFTR( c, 0, 2 );
 
 #ifdef DEBUG
 	DebugMsg( DEBUG_HIGH | DEBUG_HANDLED, "gDPSetFillColor( 0x%08X );\n", c );
@@ -524,11 +520,11 @@ void gDPSetFillColor( u32 c )
 void gDPSetPrimColor( u32 m, u32 l, u32 r, u32 g, u32 b, u32 a )
 {
 	gDP.primColor.m = m;
-	gDP.primColor.l = l * 0.0039215689f;
-	gDP.primColor.r = r * 0.0039215689f;
-	gDP.primColor.g = g * 0.0039215689f;
-	gDP.primColor.b = b * 0.0039215689f;
-	gDP.primColor.a = a * 0.0039215689f;
+	gDP.primColor.l = GXcastu8f32( l );
+	gDP.primColor.r = GXcastu8f32( r );
+	gDP.primColor.g = GXcastu8f32( g );
+	gDP.primColor.b = GXcastu8f32( b );
+	gDP.primColor.a = GXcastu8f32( a );
 
 	gDP.changed |= CHANGED_COMBINE_COLORS;
 
@@ -777,10 +773,8 @@ void gDPLoadTLUT( u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt )
     u16 count = (gDP.tiles[tile].lrs - gDP.tiles[tile].uls + 1) * (gDP.tiles[tile].lrt - gDP.tiles[tile].ult + 1);
 	u32	address = gDP.textureImage.address + gDP.tiles[tile].ult * gDP.textureImage.bpl + (gDP.tiles[tile].uls << gDP.textureImage.size >> 1);
 
-	u16 *dest = (u16*)(void*)&TMEM[gDP.tiles[tile].tmem]; 
+	u64 *dest = &TMEM[gDP.tiles[tile].tmem];
 	u16 *src = (u16*)&RDRAM[address];
-
-	u16 pal = (gDP.tiles[tile].tmem - 256) >> 4;
 
 	int i = 0;
 	while (i < count)
@@ -788,25 +782,12 @@ void gDPLoadTLUT( u32 tile, u32 uls, u32 ult, u32 lrs, u32 lrt )
 		for (u16 j = 0; (j < 16) && (i < count); j++, i++)
 		{
 #ifndef _BIG_ENDIAN
-			u16 color = swapword( src[i^1] );
-
-			*dest = color;
-			//dest[1] = color;
-			//dest[2] = color;
-			//dest[3] = color;
-
+			*dest++ = swapword( src[i^1] );
 #else // !_BIG_ENDIAN
-			*dest = src[i];
+			*dest++ = ((u64) src[i] << 48);
 #endif // _BIG_ENDIAN
-
-			dest += 4;
 		}
-        
-		gDP.paletteCRC16[pal] = CRC_CalculatePalette( 0xFFFFFFFF, &TMEM[256 + (pal << 4)], 16 );
-		pal++;
 	}
-
-	gDP.paletteCRC256 = CRC_Calculate( 0xFFFFFFFF, gDP.paletteCRC16, 64 );
 
 	gDP.changed |= CHANGED_TMEM;
 
@@ -854,9 +835,6 @@ void gDPFillRectangle( s32 ulx, s32 uly, s32 lrx, s32 lry )
 		//if (gDP.fillColor.a == 0.0f)
 		//	return;
 
-		lrx++;
-		lry++;
-
 		if ((ulx == 0) && (uly == 0) && ((unsigned int)lrx == VI.width) && ((unsigned int)lry == VI.height))
 		{
 			OGL_ClearColorBuffer( &gDP.fillColor.r );
@@ -878,29 +856,29 @@ void gDPFillRectangle( s32 ulx, s32 uly, s32 lrx, s32 lry )
 
 void gDPSetConvert( s32 k0, s32 k1, s32 k2, s32 k3, s32 k4, s32 k5 )
 {
-	gDP.convert.k0 = k0;
-	gDP.convert.k1 = k1;
-	gDP.convert.k2 = k2;
-	gDP.convert.k3 = k3;
+	gDP.convert.k0 = (k0 << (32 - 9) >> (32 - 10)) + 1;
+	gDP.convert.k1 = (k1 << (32 - 9) >> (32 - 10)) + 1;
+	gDP.convert.k2 = (k2 << (32 - 9) >> (32 - 10)) + 1;
+	gDP.convert.k3 = (k3 << (32 - 9) >> (32 - 10)) + 1;
 	gDP.convert.k4 = k4;
 	gDP.convert.k5 = k5;
 }
 
 void gDPSetKeyR( u32 cR, u32 sR, u32 wR )
 {
-	gDP.key.center.r = cR * 0.0039215689f;;
-	gDP.key.scale.r = sR * 0.0039215689f;;
-	gDP.key.width.r = wR * 0.0039215689f;;
+	gDP.key.center.r = GXcastu8f32( cR );
+	gDP.key.scale.r = GXcastu8f32( sR );
+	gDP.key.width.r = GXcastu8f32( wR );
 }
 
 void gDPSetKeyGB(u32 cG, u32 sG, u32 wG, u32 cB, u32 sB, u32 wB )
 {
-	gDP.key.center.g = cG * 0.0039215689f;;
-	gDP.key.scale.g = sG * 0.0039215689f;;
-	gDP.key.width.g = wG * 0.0039215689f;;
-	gDP.key.center.b = cB * 0.0039215689f;;
-	gDP.key.scale.b = sB * 0.0039215689f;;
-	gDP.key.width.b = wB * 0.0039215689f;;
+	gDP.key.center.g = GXcastu8f32( cG );
+	gDP.key.scale.g = GXcastu8f32( sG );
+	gDP.key.width.g = GXcastu8f32( wG );
+	gDP.key.center.b = GXcastu8f32( cB );
+	gDP.key.scale.b = GXcastu8f32( sB );
+	gDP.key.width.b = GXcastu8f32( wB );
 }
 
 void gDPTextureRectangle( f32 ulx, f32 uly, f32 lrx, f32 lry, s32 tile, f32 s, f32 t, f32 dsdx, f32 dtdy )

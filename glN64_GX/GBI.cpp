@@ -30,7 +30,9 @@
 #include "F3DDKR.h"
 #include "F3DWRUS.h"
 #include "F3DPD.h"
+#include "F3DCBFD.h"
 #include "Types.h"
+#include "Debug.h"
 #ifndef __LINUX__
 # include "Resource.h"
 #else // !__LINUX__
@@ -42,26 +44,22 @@
 # include <unistd.h>
 # include <stdlib.h>
 #endif // __LINUX__
-#include "CRC.h"
-#include "Debug.h"
+#include <zlib.h>
 
 u32 uc_crc, uc_dcrc;
 char uc_str[256];
 
 SpecialMicrocodeInfo specialMicrocodes[] =
 {
-	{ F3DWRUS,	FALSE,	0xd17906e2, (char*) "RSP SW Version: 2.0D, 04-01-96" },
-	{ F3DWRUS,	FALSE,	0x94c4c833, (char*) "RSP SW Version: 2.0D, 04-01-96" },
-
-	{ S2DEX,	FALSE,	0x9df31081, (char*) "RSP Gfx ucode S2DEX  1.06 Yoshitaka Yasumoto Nintendo." },
-
-	{ F3DDKR,	FALSE,	0x8d91244f, (char*) "Diddy Kong Racing" },
-	{ F3DDKR,	FALSE,	0x6e6fc893, (char*) "Diddy Kong Racing" },
-	{ F3DDKR,	FALSE,	0xbde9d1fb, (char*) "Jet Force Gemini" },
-	{ F3DPD,	FALSE,	0x1c4f7869, (char*) "Perfect Dark" },
-
-	//This last one is for Mario Kart 64.
-	{ F3DEX,	FALSE,	0x0ace4c3f, (char*) "RSP Gfx ucode F3DEX         0.95 Toshitaka Yasumoto Nintendo." }
+	{ F3DWRUS,	FALSE,	0x81FA4A32, (char*) "RSP SW Version: 2.0D, 04-01-96" },
+	{ F3DWRUS,	FALSE,	0xE7FA4491, (char*) "RSP SW Version: 2.0D, 04-01-96" },
+	{ F3DDKR,	FALSE,	0x3BFF208D, (char*) "Diddy Kong Racing" },
+	{ F3DDKR,	FALSE,	0x8F9AE489, (char*) "Diddy Kong Racing" },
+	{ F3DDKR,	FALSE,	0x83421788, (char*) "JET FORCE GEMINI" },
+	{ F3DPD,	FALSE,	0xC543D0A8, (char*) "Perfect Dark" },
+	{ F3DCBFD,	TRUE,	0x99E222AC, (char*) "RSP Gfx ucode F3DEXBG.NoN fifo 2.08  Yoshitaka Yasumoto 1999 Nintendo." },
+	{ F3DEX2,	TRUE,	0x1DACFAF1, (char*) "ANIMAL FOREST" },
+	{ S2DEX2,	FALSE,	0x8E050E8E, (char*) "ANIMAL FOREST" },
 };
 
 u32 G_RDPHALF_1, G_RDPHALF_2, G_RDPHALF_CONT;
@@ -373,10 +371,10 @@ MicrocodeInfo *GBI_DetectMicrocode( u32 uc_start, u32 uc_dstart, u16 uc_dsize )
 	current->dataAddress = uc_dstart;
 	current->dataSize = uc_dsize;
 	current->NoN = FALSE;
-	current->type = NONE;
+	current->type = F3D;
 
 	// See if we can identify it by CRC
-	uc_crc = CRC_Calculate( 0xFFFFFFFF, &RDRAM[uc_start & 0x1FFFFFFF], 4096 );
+	uc_crc = crc32( 0, &RDRAM[uc_start & 0x1FFFFFFF], 4096 );
 #if 0 //def __GX__
 	sprintf(txtbuffer,"GBI:uc_crc: %x", uc_crc);
 	DEBUG_print(txtbuffer,3); 
@@ -391,15 +389,15 @@ MicrocodeInfo *GBI_DetectMicrocode( u32 uc_start, u32 uc_dstart, u16 uc_dsize )
 	}
 
 	// See if we can identify it by text
-	char uc_data[2048];
+	char uc_data[uc_dsize];
 #ifndef _BIG_ENDIAN
-	UnswapCopy( &RDRAM[uc_dstart & 0x1FFFFFFF], uc_data, 2048 );
+	UnswapCopy( &RDRAM[uc_dstart & 0x1FFFFFFF], uc_data, uc_dsize );
 #else // !_BIG_ENDIAN
-	memcpy( uc_data, &RDRAM[uc_dstart & 0x1FFFFFFF], 2048 );
+	memcpy( uc_data, &RDRAM[uc_dstart & 0x1FFFFFFF], uc_dsize );
 #endif
 	strcpy( uc_str, "Not Found" );
 
-	for (u32 i = 0; i < 2048; i++)
+	for (u32 i = 0; i < uc_dsize; i++)
 	{
 		if ((uc_data[i] == 'R') && (uc_data[i+1] == 'S') && (uc_data[i+2] == 'P'))
 		{
@@ -429,7 +427,9 @@ MicrocodeInfo *GBI_DetectMicrocode( u32 uc_start, u32 uc_dstart, u16 uc_dsize )
 
 				if (strncmp( &uc_str[14], "F3D", 3 ) == 0)
 				{
-					if (uc_str[28] == '1')
+					if (uc_str[28] == '0')
+						type = F3DEX;
+					else if (uc_str[28] == '1')
 						type = F3DEX;
 					else if (uc_str[31] == '2')
 						type = F3DEX2;
@@ -443,7 +443,7 @@ MicrocodeInfo *GBI_DetectMicrocode( u32 uc_start, u32 uc_dstart, u16 uc_dsize )
 				}
 				else if (strncmp( &uc_str[14], "S2D", 3 ) == 0)
 				{
-					if (uc_str[28] == '1')
+					if (uc_str[21] == '1')
 						type = S2DEX;
 					else if (uc_str[31] == '2')
 						type = S2DEX2;
@@ -523,6 +523,7 @@ void GBI_MakeCurrent( MicrocodeInfo *current )
 			case F3DDKR:	F3DDKR_Init();	break;
 			case F3DWRUS:	F3DWRUS_Init();	break;
 			case F3DPD:		F3DPD_Init();	break;
+			case F3DCBFD:	F3DCBFD_Init();	break;
 		}
 	}
 

@@ -122,34 +122,21 @@ void gSPCombineMatrices()
 #ifdef __GX__
 	if (OGL.numTriangles)
 		OGL_DrawTriangles();
-	OGL.GXupdateMtx = true;
 
-	if(gSP.matrix.combined[2][3] != 0)
+	guMtxInverse( gSP.matrix.combined, OGL.GXprojTemp );
+
+	if (OGL.GXprojTemp[2][3] != 0.0f)
 	{
-		OGL.GXcombW[2][2] = -GXprojZOffset - (GXprojZScale*gSP.matrix.combined[2][2]/gSP.matrix.combined[2][3]);
-		OGL.GXcombW[2][3] = GXprojZScale*(gSP.matrix.combined[3][2] - (gSP.matrix.combined[2][2]*gSP.matrix.combined[3][3]/gSP.matrix.combined[2][3]));
-//		OGL.GXcombW[2][3] = OGL.GXcombW[2][3]-0.25;
+		OGL.GXcombW[2][3] = GXprojZScale / OGL.GXprojTemp[2][3];
+		OGL.GXcombW[2][2] = -GXprojZOffset + (OGL.GXcombW[2][3] * OGL.GXprojTemp[3][3]);
 		OGL.GXuseCombW = true;
-
-		//Transform for zPrime
-		if (gSP.matrix.combined[2][2] != 0)
-		{
-			OGL.GXzPrimeScale		= -gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2];
-			OGL.GXzPrimeTranslate	= -(gSP.matrix.combined[3][2] - (gSP.matrix.combined[2][2]*gSP.matrix.combined[3][3]/gSP.matrix.combined[2][3]))*(gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2]);
-//			OGL.GXzPrimeScale		= gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2];
-//			OGL.GXzPrimeTranslate	= -(gSP.matrix.combined[3][2] + (gSP.matrix.combined[2][2]*gSP.matrix.combined[3][3]/gSP.matrix.combined[2][3]))*(gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2]);
-		}
-		else
-		{
-			OGL.GXzPrimeScale = OGL.GXzPrimeTranslate = 0;
-# ifdef SHOW_DEBUG
-			sprintf(txtbuffer,"gSPCombineMtx: zPrime Error!");
-			DEBUG_print(txtbuffer,6+1); 
-# endif
-		}
+		OGL.GXupdateMtx = true;
 	}
 	else
+	{
 		OGL.GXuseCombW = false;
+		OGL.GXupdateMtx = true;
+	}
 #endif //__GX__
 }
 
@@ -188,11 +175,6 @@ void gSPProcessVertex( u32 v )
 		gSP.vertices[v].z = -gSP.vertices[v].w;
 	}
 
-#ifdef __GX__
-	//Alternative W for exact Z coordinate
-	gSP.vertices[v].zPrime = gSP.vertices[v].w*OGL.GXzPrimeScale + OGL.GXzPrimeTranslate;
-#endif
-
 	if (gSP.geometryMode & G_LIGHTING)
 	{
 		TransformVector( &gSP.vertices[v].nx, gSP.matrix.modelView[gSP.matrix.modelViewi] );
@@ -226,9 +208,9 @@ void gSPProcessVertex( u32 v )
 		DEBUG_print(txtbuffer,DBG_SDGECKOPRINT);
 #endif // GLN64_SDLOG
 
-		gSP.vertices[v].r = r;
-		gSP.vertices[v].g = g;
-		gSP.vertices[v].b = b;
+		gSP.vertices[v].r = min(1.0f, r);
+		gSP.vertices[v].g = min(1.0f, g);
+		gSP.vertices[v].b = min(1.0f, b);
 
 		if (gSP.geometryMode & G_TEXTURE_GEN)
 		{
@@ -252,29 +234,6 @@ void gSPProcessVertex( u32 v )
 			}
 		}
 	}
-
-	if (gSP.vertices[v].x < -gSP.vertices[v].w)
-		gSP.vertices[v].xClip = -1.0f;
-	else if (gSP.vertices[v].x > gSP.vertices[v].w)
-		gSP.vertices[v].xClip = 1.0f;
-	else
-		gSP.vertices[v].xClip = 0.0f;
-
-	if (gSP.vertices[v].y < -gSP.vertices[v].w)
-		gSP.vertices[v].yClip = -1.0f;
-	else if (gSP.vertices[v].y > gSP.vertices[v].w)
-		gSP.vertices[v].yClip = 1.0f;
-	else
-		gSP.vertices[v].yClip = 0.0f;
-
-	if (gSP.vertices[v].w <= 0.0f)
-		gSP.vertices[v].zClip = -1.0f;
-	else if (gSP.vertices[v].z < -gSP.vertices[v].w)
-		gSP.vertices[v].zClip = -0.1f;
-	else if (gSP.vertices[v].z > gSP.vertices[v].w)
-		gSP.vertices[v].zClip = 1.0f;
-	else
-		gSP.vertices[v].zClip = 0.0f;
 }
 
 void gSPNoOp()
@@ -415,20 +374,20 @@ void gSPViewport( u32 v )
 #ifndef _BIG_ENDIAN
 	gSP.viewport.vscale[0] = _FIXED2FLOAT( *(s16*)&RDRAM[address +  2], 2 );
 	gSP.viewport.vscale[1] = _FIXED2FLOAT( *(s16*)&RDRAM[address     ], 2 );
-	gSP.viewport.vscale[2] = _FIXED2FLOAT( *(s16*)&RDRAM[address +  6], 10 );// * 0.00097847357f;
+	gSP.viewport.vscale[2] = _FIXED2FLOAT( *(s16*)&RDRAM[address +  6], 10 ) + FIXED2FLOATRECIP10;
 	gSP.viewport.vscale[3] = *(s16*)&RDRAM[address +  4];
 	gSP.viewport.vtrans[0] = _FIXED2FLOAT( *(s16*)&RDRAM[address + 10], 2 );
 	gSP.viewport.vtrans[1] = _FIXED2FLOAT( *(s16*)&RDRAM[address +  8], 2 );
-	gSP.viewport.vtrans[2] = _FIXED2FLOAT( *(s16*)&RDRAM[address + 14], 10 );// * 0.00097847357f;
+	gSP.viewport.vtrans[2] = _FIXED2FLOAT( *(s16*)&RDRAM[address + 14], 10 ) + FIXED2FLOATRECIP10;
 	gSP.viewport.vtrans[3] = *(s16*)&RDRAM[address + 12];
 #else // !_BIG_ENDIAN -> This is to correct for big endian
 	gSP.viewport.vscale[0] = _FIXED2FLOAT( *(s16*)&RDRAM[address     ], 2 );
 	gSP.viewport.vscale[1] = _FIXED2FLOAT( *(s16*)&RDRAM[address +  2], 2 );
-	gSP.viewport.vscale[2] = _FIXED2FLOAT( *(s16*)&RDRAM[address +  4], 10 );// * 0.00097847357f;
+	gSP.viewport.vscale[2] = _FIXED2FLOAT( *(s16*)&RDRAM[address +  4], 10 ) + FIXED2FLOATRECIP10;
 	gSP.viewport.vscale[3] = *(s16*)&RDRAM[address +  6];
 	gSP.viewport.vtrans[0] = _FIXED2FLOAT( *(s16*)&RDRAM[address +  8], 2 );
 	gSP.viewport.vtrans[1] = _FIXED2FLOAT( *(s16*)&RDRAM[address + 10], 2 );
-	gSP.viewport.vtrans[2] = _FIXED2FLOAT( *(s16*)&RDRAM[address + 12], 10 );// * 0.00097847357f;
+	gSP.viewport.vtrans[2] = _FIXED2FLOAT( *(s16*)&RDRAM[address + 12], 10 ) + FIXED2FLOATRECIP10;
 	gSP.viewport.vtrans[3] = *(s16*)&RDRAM[address + 14];
 #endif // _BIG_ENDIAN
 
@@ -437,7 +396,7 @@ void gSPViewport( u32 v )
 	gSP.viewport.width	= gSP.viewport.vscale[0] * 2;
 	gSP.viewport.height	= gSP.viewport.vscale[1] * 2;
 	gSP.viewport.nearz	= gSP.viewport.vtrans[2] - gSP.viewport.vscale[2];
-	gSP.viewport.farz	= (gSP.viewport.vtrans[2] + gSP.viewport.vscale[2]) ;
+	gSP.viewport.farz	= gSP.viewport.vtrans[2] + gSP.viewport.vscale[2];
 
 	gSP.changed |= CHANGED_VIEWPORT;
 
@@ -469,35 +428,21 @@ void gSPForceMatrix( u32 mptr )
 
 	if (OGL.numTriangles)
 		OGL_DrawTriangles();
-	OGL.GXupdateMtx = true;
 
-	if(gSP.matrix.combined[2][3] != 0)
+	guMtxInverse( gSP.matrix.combined, OGL.GXprojTemp );
+
+	if (OGL.GXprojTemp[2][3] != 0.0f)
 	{
-		OGL.GXcombW[2][2] = -GXprojZOffset - (GXprojZScale*gSP.matrix.combined[2][2]/gSP.matrix.combined[2][3]);
-		OGL.GXcombW[2][3] = GXprojZScale*(gSP.matrix.combined[3][2] - (gSP.matrix.combined[2][2]*gSP.matrix.combined[3][3]/gSP.matrix.combined[2][3]));
-//		OGL.GXcombW[2][3] = OGL.GXcombW[2][3]-0.25;
+		OGL.GXcombW[2][3] = GXprojZScale / OGL.GXprojTemp[2][3];
+		OGL.GXcombW[2][2] = -GXprojZOffset + (OGL.GXcombW[2][3] * OGL.GXprojTemp[3][3]);
 		OGL.GXuseCombW = true;
-
-		//Transform for zPrime
-		if (gSP.matrix.combined[2][2] != 0)
-		{
-			OGL.GXzPrimeScale		= -gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2];
-			OGL.GXzPrimeTranslate	= -(gSP.matrix.combined[3][2] - (gSP.matrix.combined[2][2]*gSP.matrix.combined[3][3]/gSP.matrix.combined[2][3]))*(gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2]);
-//			OGL.GXzPrimeScale		= gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2];
-//			OGL.GXzPrimeTranslate	= -(gSP.matrix.combined[3][2] + (gSP.matrix.combined[2][2]*gSP.matrix.combined[3][3]/gSP.matrix.combined[2][3]))*(gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2]);
-		}
-		else
-		{
-			OGL.GXzPrimeScale = OGL.GXzPrimeTranslate = 0;
-# ifdef SHOW_DEBUG
-			sprintf(txtbuffer,"gSPCombineMtx: zPrime Error!");
-			DEBUG_print(txtbuffer,6+1); 
-# endif
-		}
+		OGL.GXupdateMtx = true;
 	}
 	else
+	{
 		OGL.GXuseCombW = false;
-
+		OGL.GXupdateMtx = true;
+	}
 #endif //__GX__
 
 	gSP.changed &= ~CHANGED_MATRIX;
@@ -526,9 +471,9 @@ void gSPLight( u32 l, s32 n )
 
 	if (n < 8)
 	{
-		gSP.lights[n].r = light->r * 0.0039215689f;
-		gSP.lights[n].g = light->g * 0.0039215689f;
-		gSP.lights[n].b = light->b * 0.0039215689f;
+		gSP.lights[n].r = GXcastu8f32( light->r );
+		gSP.lights[n].g = GXcastu8f32( light->g );
+		gSP.lights[n].b = GXcastu8f32( light->b );
 
 		gSP.lights[n].x = light->x;
 		gSP.lights[n].y = light->y;
@@ -587,14 +532,14 @@ void gSPVertex( u32 v, u32 n, u32 v0 )
 				gSP.vertices[i].nx = vertex->normal.x;
 				gSP.vertices[i].ny = vertex->normal.y;
 				gSP.vertices[i].nz = vertex->normal.z;
-				gSP.vertices[i].a = vertex->color.a * 0.0039215689f;
+				gSP.vertices[i].a = GXcastu8f32( vertex->color.a );
 			}
 			else
 			{
-				gSP.vertices[i].r = vertex->color.r * 0.0039215689f;
-				gSP.vertices[i].g = vertex->color.g * 0.0039215689f;
-				gSP.vertices[i].b = vertex->color.b * 0.0039215689f;
-				gSP.vertices[i].a = vertex->color.a * 0.0039215689f;
+				gSP.vertices[i].r = GXcastu8f32( vertex->color.r );
+				gSP.vertices[i].g = GXcastu8f32( vertex->color.g );
+				gSP.vertices[i].b = GXcastu8f32( vertex->color.b );
+				gSP.vertices[i].a = GXcastu8f32( vertex->color.a );
 			}
 
 #ifdef DEBUG
@@ -629,6 +574,59 @@ void gSPVertex( u32 v, u32 n, u32 v0 )
 	DebugMsg( DEBUG_HIGH | DEBUG_HANDLED | DEBUG_VERTEX, "gSPVertex( 0x%08X, %i, %i );\n",
 		v, n, v0 );
 #endif
+}
+
+void gSPNIVertex( u32 v, u32 n, u32 v0 )
+{
+	u32 address = RSP_SegmentToPhysical( v );
+
+	if ((address + sizeof( Vertex ) * n) > RDRAMSize)
+	{
+		return;
+	}
+
+	Vertex* vertex = (Vertex*)&RDRAM[address];
+
+	if ((n + v0) < (80))
+	{
+		for (unsigned int i = v0; i < n + v0; i++)
+		{
+			gSP.vertices[i].x = vertex->x;
+			gSP.vertices[i].y = vertex->y;
+			gSP.vertices[i].z = vertex->z;
+			gSP.vertices[i].flag = 0;
+			gSP.vertices[i].s = _FIXED2FLOAT( vertex->s, 5 );
+			gSP.vertices[i].t = _FIXED2FLOAT( vertex->t, 5 );
+
+			u8 *color = &RDRAM[gSP.vertexColorBase + (i << 1)];
+
+			if (gSP.geometryMode & G_LIGHTING)
+			{
+				gSP.vertices[i].nx = (s8)color[0];
+				gSP.vertices[i].ny = (s8)color[1];
+				gSP.vertices[i].nz = (s8)vertex->flag;
+				gSP.vertices[i].a = GXcastu8f32( vertex->color.a );
+			}
+			else
+			{
+				gSP.vertices[i].r = GXcastu8f32( vertex->color.r );
+				gSP.vertices[i].g = GXcastu8f32( vertex->color.g );
+				gSP.vertices[i].b = GXcastu8f32( vertex->color.b );
+				gSP.vertices[i].a = GXcastu8f32( vertex->color.a );
+			}
+
+			gSPProcessVertex(i);
+
+			if (gSP.geometryMode & G_LIGHTING)
+			{
+				gSP.vertices[i].r *= GXcastu8f32( vertex->color.r );
+				gSP.vertices[i].g *= GXcastu8f32( vertex->color.g );
+				gSP.vertices[i].b *= GXcastu8f32( vertex->color.b );
+			}
+
+			vertex++;
+		}
+	}
 }
 
 void gSPCIVertex( u32 v, u32 n, u32 v0 )
@@ -681,14 +679,14 @@ void gSPCIVertex( u32 v, u32 n, u32 v0 )
 				gSP.vertices[i].nx = (s8)color[0];
 				gSP.vertices[i].ny = (s8)color[1];
 				gSP.vertices[i].nz = (s8)color[2];
-				gSP.vertices[i].a = color[3] * 0.0039215689f;
+				gSP.vertices[i].a = GXcastu8f32( color[3] );
 			}
 			else
 			{
-				gSP.vertices[i].r = color[0] * 0.0039215689f;
-				gSP.vertices[i].g = color[1] * 0.0039215689f;
-				gSP.vertices[i].b = color[2] * 0.0039215689f;
-				gSP.vertices[i].a = color[3] * 0.0039215689f;
+				gSP.vertices[i].r = GXcastu8f32( color[0] );
+				gSP.vertices[i].g = GXcastu8f32( color[1] );
+				gSP.vertices[i].b = GXcastu8f32( color[2] );
+				gSP.vertices[i].a = GXcastu8f32( color[3] );
 			}
 #endif // _BIG_ENDIAN
 
@@ -755,14 +753,14 @@ void gSPDMAVertex( u32 v, u32 n, u32 v0 )
 				gSP.vertices[i].nx = *(s8*)&RDRAM[(address + 6) ^ 0];
 				gSP.vertices[i].ny = *(s8*)&RDRAM[(address + 7) ^ 0];
 				gSP.vertices[i].nz = *(s8*)&RDRAM[(address + 8) ^ 0];
-				gSP.vertices[i].a = *(u8*)&RDRAM[(address + 9) ^ 0] * 0.0039215689f;
+				gSP.vertices[i].a = GXcastu8f32( *(u8*)&RDRAM[(address + 9) ^ 0] );
 			}
 			else
 			{
-				gSP.vertices[i].r = *(u8*)&RDRAM[(address + 6) ^ 0] * 0.0039215689f;
-				gSP.vertices[i].g = *(u8*)&RDRAM[(address + 7) ^ 0] * 0.0039215689f;
-				gSP.vertices[i].b = *(u8*)&RDRAM[(address + 8) ^ 0] * 0.0039215689f;
-				gSP.vertices[i].a = *(u8*)&RDRAM[(address + 9) ^ 0] * 0.0039215689f;
+				gSP.vertices[i].r = GXcastu8f32( *(u8*)&RDRAM[(address + 6) ^ 0] );
+				gSP.vertices[i].g = GXcastu8f32( *(u8*)&RDRAM[(address + 7) ^ 0] );
+				gSP.vertices[i].b = GXcastu8f32( *(u8*)&RDRAM[(address + 8) ^ 0] );
+				gSP.vertices[i].a = GXcastu8f32( *(u8*)&RDRAM[(address + 9) ^ 0] );
 			}
 #endif // _BIG_ENDIAN
 
@@ -973,238 +971,10 @@ void gSPInterpolateVertex( SPVertex *dest, f32 percent, SPVertex *first, SPVerte
 	dest->t = first->t + percent * (second->t - first->t);
 }
 
-void gSPTriangle( s32 v0, s32 v1, s32 v2, s32 flag )
+void gSPTriangle( s32 v0, s32 v1, s32 v2 )
 {
 	if ((v0 < 80) && (v1 < 80) && (v2 < 80))
-	{
-#ifndef __GX__
-		// Don't bother with triangles completely outside clipping frustrum
-		if (((gSP.vertices[v0].xClip < 0.0f) &&
-			 (gSP.vertices[v1].xClip < 0.0f) &&
-			 (gSP.vertices[v2].xClip < 0.0f)) ||
-		    ((gSP.vertices[v0].xClip > 0.0f) &&
-			 (gSP.vertices[v1].xClip > 0.0f) &&
-			 (gSP.vertices[v2].xClip > 0.0f)) ||
-		    ((gSP.vertices[v0].yClip < 0.0f) &&
-			 (gSP.vertices[v1].yClip < 0.0f) &&
-			 (gSP.vertices[v2].yClip < 0.0f)) ||
-		    ((gSP.vertices[v0].yClip > 0.0f) &&
-			 (gSP.vertices[v1].yClip > 0.0f) &&
-			 (gSP.vertices[v2].yClip > 0.0f)) ||
-			((gSP.vertices[v0].zClip > 0.1f) &&
-			 (gSP.vertices[v1].zClip > 0.1f) &&
-			 (gSP.vertices[v2].zClip > 0.1f)) ||
-			((gSP.vertices[v0].zClip < -0.1f) &&
-			 (gSP.vertices[v1].zClip < -0.1f) &&
-			 (gSP.vertices[v2].zClip < -0.1f)))
-			 return;
-
-		// NoN work-around, clips triangles, and draws the clipped-off parts with clamped z
-		if (GBI.current->NoN &&
-			((gSP.vertices[v0].zClip < 0.0f) ||
-			(gSP.vertices[v1].zClip < 0.0f) ||
-			(gSP.vertices[v2].zClip < 0.0f)))
-		{
-			SPVertex nearVertices[4];
-			SPVertex clippedVertices[4];
-			//s32 numNearTris = 0;
-			//s32 numClippedTris = 0;
-			s32 nearIndex = 0;
-			s32 clippedIndex = 0;
-
-			s32 v[3] = { v0, v1, v2 };
-
-			for (s32 i = 0; i < 3; i++)
-			{
-				s32 j = i + 1;
-				if (j == 3) j = 0;
-
-				if (((gSP.vertices[v[i]].zClip < 0.0f) && (gSP.vertices[v[j]].zClip >= 0.0f)) ||
-					((gSP.vertices[v[i]].zClip >= 0.0f) && (gSP.vertices[v[j]].zClip < 0.0f)))
-				{
-					f32 percent = (-gSP.vertices[v[i]].w - gSP.vertices[v[i]].z) / ((gSP.vertices[v[j]].z - gSP.vertices[v[i]].z) + (gSP.vertices[v[j]].w - gSP.vertices[v[i]].w));
-
-					gSPInterpolateVertex( &clippedVertices[clippedIndex], percent, &gSP.vertices[v[i]], &gSP.vertices[v[j]] );
-
-					gSPCopyVertex( &nearVertices[nearIndex], &clippedVertices[clippedIndex] );
-					nearVertices[nearIndex].z = -nearVertices[nearIndex].w;
-
-					clippedIndex++;
-					nearIndex++;
-				}
-
-				if (((gSP.vertices[v[i]].zClip < 0.0f) && (gSP.vertices[v[j]].zClip >= 0.0f)) ||
-					((gSP.vertices[v[i]].zClip >= 0.0f) && (gSP.vertices[v[j]].zClip >= 0.0f)))
-				{
-					gSPCopyVertex( &clippedVertices[clippedIndex], &gSP.vertices[v[j]] );
-					clippedIndex++;
-				}
-				else
-				{
-					gSPCopyVertex( &nearVertices[nearIndex], &gSP.vertices[v[j]] );
-					nearVertices[nearIndex].z = -nearVertices[nearIndex].w;// + 0.00001f;
-					nearIndex++;
-				}
-			}
-
-			OGL_AddTriangle( clippedVertices, 0, 1, 2 );
-
-			if (clippedIndex == 4)
-				OGL_AddTriangle( clippedVertices, 0, 2, 3 );
-
-			glDisable( GL_POLYGON_OFFSET_FILL );
-
-//			glDepthFunc( GL_LEQUAL );
-
-			OGL_AddTriangle( nearVertices, 0, 1, 2 );
-			if (nearIndex == 4)
-				OGL_AddTriangle( nearVertices, 0, 2, 3 );
-
-			if (gDP.otherMode.depthMode == ZMODE_DEC)
-				glEnable( GL_POLYGON_OFFSET_FILL );
-
-//			if (gDP.otherMode.depthCompare)
-//				glDepthFunc( GL_LEQUAL );
-		}
-		else
-			OGL_AddTriangle( gSP.vertices, v0, v1, v2 );
-
-#else // !__GX__
-		if(1)
-//		if(!OGL.GXuseProj)
-		{
-			// Don't bother with triangles completely outside clipping frustrum
-			if (((gSP.vertices[v0].xClip < 0.0f) &&
-				 (gSP.vertices[v1].xClip < 0.0f) &&
-				 (gSP.vertices[v2].xClip < 0.0f)) ||
-			    ((gSP.vertices[v0].xClip > 0.0f) &&
-				 (gSP.vertices[v1].xClip > 0.0f) &&
-				 (gSP.vertices[v2].xClip > 0.0f)) ||
-				((gSP.vertices[v0].yClip < 0.0f) &&
-				 (gSP.vertices[v1].yClip < 0.0f) &&
-				 (gSP.vertices[v2].yClip < 0.0f)) ||
-			    ((gSP.vertices[v0].yClip > 0.0f) &&
-				 (gSP.vertices[v1].yClip > 0.0f) &&
-				 (gSP.vertices[v2].yClip > 0.0f)) ||
-				((gSP.vertices[v0].zClip > 0.1f) &&
-				 (gSP.vertices[v1].zClip > 0.1f) &&
-				 (gSP.vertices[v2].zClip > 0.1f)) ||
-				((gSP.vertices[v0].zClip < -0.1f) &&
-				 (gSP.vertices[v1].zClip < -0.1f) &&
-				 (gSP.vertices[v2].zClip < -0.1f)))
-				 return;
-		}
-
-		// TODO: Make this work with the current Mtx setup. Fix .zClip.
-
-		// NoN work-around, clips triangles, and draws the clipped-off parts with clamped z
-		if (GBI.current->NoN &&
-			((gSP.vertices[v0].zClip < 0.0f) ||
-			(gSP.vertices[v1].zClip < 0.0f) ||
-			(gSP.vertices[v2].zClip < 0.0f)))
-		{
-//		if(0)
-//		{
-			SPVertex nearVertices[4];
-			SPVertex clippedVertices[4];
-			//s32 numNearTris = 0;
-			//s32 numClippedTris = 0;
-			s32 nearIndex = 0;
-			s32 clippedIndex = 0;
-
-#ifdef __GX__
-			DEBUG_print((char*)"NoN clipping triangles!!!",DBG_TXINFO1); //5
-#endif // __GX__
-
-			s32 v[3] = { v0, v1, v2 };
-
-			for (s32 i = 0; i < 3; i++)
-			{
-				s32 j = i + 1;
-				if (j == 3) j = 0;
-
-				if (((gSP.vertices[v[i]].zClip < 0.0f) && (gSP.vertices[v[j]].zClip >= 0.0f)) ||
-					((gSP.vertices[v[i]].zClip >= 0.0f) && (gSP.vertices[v[j]].zClip < 0.0f)))
-				{
-					//catch div0 case which will give infinite vertex coords
-					if (((gSP.vertices[v[j]].z - gSP.vertices[v[i]].z) + (gSP.vertices[v[j]].w - gSP.vertices[v[i]].w)) == 0.0f)
-						return;
-					f32 percent = (-gSP.vertices[v[i]].w - gSP.vertices[v[i]].z) / ((gSP.vertices[v[j]].z - gSP.vertices[v[i]].z) + (gSP.vertices[v[j]].w - gSP.vertices[v[i]].w));
-
-					gSPInterpolateVertex( &clippedVertices[clippedIndex], percent, &gSP.vertices[v[i]], &gSP.vertices[v[j]] );
-
-					gSPCopyVertex( &nearVertices[nearIndex], &clippedVertices[clippedIndex] );
-					nearVertices[nearIndex].z = -nearVertices[nearIndex].w;
-
-					clippedIndex++;
-					nearIndex++;
-				}
-
-				if (((gSP.vertices[v[i]].zClip < 0.0f) && (gSP.vertices[v[j]].zClip >= 0.0f)) ||
-					((gSP.vertices[v[i]].zClip >= 0.0f) && (gSP.vertices[v[j]].zClip >= 0.0f)))
-				{
-					gSPCopyVertex( &clippedVertices[clippedIndex], &gSP.vertices[v[j]] );
-					clippedIndex++;
-				}
-				else
-				{
-					gSPCopyVertex( &nearVertices[nearIndex], &gSP.vertices[v[j]] );
-					nearVertices[nearIndex].z = -nearVertices[nearIndex].w;// + 0.00001f;
-					nearIndex++;
-				}
-			}
-
-			OGL_AddTriangle( clippedVertices, 0, 1, 2 );
-
-			if (clippedIndex == 4)
-				OGL_AddTriangle( clippedVertices, 0, 2, 3 );
-
-			//Flush triangle cache before drawing near triangles
-			OGL_DrawTriangles();
-			OGL.GXuseProjWnear = true;
-			OGL.GXupdateMtx = true;
-
-#ifndef __GX__
-			glDisable( GL_POLYGON_OFFSET_FILL );
-#else // !__GX__
-			if (OGL.GXpolyOffset)
-			{
-				OGL.GXpolyOffset = false;
-				OGL.GXupdateMtx = true;
-			}
-#endif // __GX__
-
-//			glDepthFunc( GL_LEQUAL );
-
-			OGL_AddTriangle( nearVertices, 0, 1, 2 );
-			if (nearIndex == 4)
-				OGL_AddTriangle( nearVertices, 0, 2, 3 );
-
-			//Flush near triangles from cache
-			OGL_DrawTriangles();
-			OGL.GXuseProjWnear = false;
-			OGL.GXupdateMtx = true;
-
-#ifndef __GX__
-			if (gDP.otherMode.depthMode == ZMODE_DEC)
-				glEnable( GL_POLYGON_OFFSET_FILL );
-#else // !__GX__
-			if (gDP.otherMode.depthMode == ZMODE_DEC)
-			{
-				OGL.GXpolyOffset = true;
-				OGL.GXupdateMtx = true;
-			}
-#endif // __GX__
-
-//			if (gDP.otherMode.depthCompare)
-//				glDepthFunc( GL_LEQUAL );
-		}
-//#endif // !__GX__
-		else
-			OGL_AddTriangle( gSP.vertices, v0, v1, v2 );
-#endif // __GX__
-
-	}
+		OGL_AddTriangle( gSP.vertices, v0, v1, v2 );
 #ifdef DEBUG
 	else
 		DebugMsg( DEBUG_HIGH | DEBUG_ERROR | DEBUG_TRIANGLE, "// Vertex index out of range\n" );
@@ -1215,9 +985,9 @@ void gSPTriangle( s32 v0, s32 v1, s32 v2, s32 flag )
 	gDP.colorImage.height = (unsigned long)(max( gDP.colorImage.height, gDP.scissor.lry ));
 }
 
-void gSP1Triangle( s32 v0, s32 v1, s32 v2, s32 flag )
+void gSP1Triangle( s32 v0, s32 v1, s32 v2 )
 {
-	gSPTriangle( v0, v1, v2, flag );
+	gSPTriangle( v0, v1, v2 );
 
 	gSPFlushTriangles();
 
@@ -1227,11 +997,11 @@ void gSP1Triangle( s32 v0, s32 v1, s32 v2, s32 flag )
 #endif
 }
 
-void gSP2Triangles( s32 v00, s32 v01, s32 v02, s32 flag0, 
-				    s32 v10, s32 v11, s32 v12, s32 flag1 )
+void gSP2Triangles( s32 v00, s32 v01, s32 v02,
+				    s32 v10, s32 v11, s32 v12 )
 {
-	gSPTriangle( v00, v01, v02, flag0 );
-	gSPTriangle( v10, v11, v12, flag1 );
+	gSPTriangle( v00, v01, v02 );
+	gSPTriangle( v10, v11, v12 );
 
 	gSPFlushTriangles();
 
@@ -1248,10 +1018,10 @@ void gSP4Triangles( s32 v00, s32 v01, s32 v02,
 					s32 v20, s32 v21, s32 v22,
 					s32 v30, s32 v31, s32 v32 )
 {
-	gSPTriangle( v00, v01, v02, 0 );
-	gSPTriangle( v10, v11, v12, 0 );
-	gSPTriangle( v20, v21, v22, 0 );
-	gSPTriangle( v30, v31, v32, 0 );
+	gSPTriangle( v00, v01, v02 );
+	gSPTriangle( v10, v11, v12 );
+	gSPTriangle( v20, v21, v22 );
+	gSPTriangle( v30, v31, v32 );
 
 	gSPFlushTriangles();
 
@@ -1304,7 +1074,7 @@ void gSPDMATriangles( u32 tris, u32 n )
 		gSP.vertices[triangles->v2].s = _FIXED2FLOAT( triangles->s2, 5 );
 		gSP.vertices[triangles->v2].t = _FIXED2FLOAT( triangles->t2, 5 );
 
-		gSPTriangle( triangles->v0, triangles->v1, triangles->v2, 0 );
+		gSPTriangle( triangles->v0, triangles->v1, triangles->v2 );
 
 		triangles++;
 	}
@@ -1319,106 +1089,14 @@ void gSPDMATriangles( u32 tris, u32 n )
 
 void gSP1Quadrangle( s32 v0, s32 v1, s32 v2, s32 v3 )
 {
-	gSPTriangle( v0, v1, v2, 0 );
-	gSPTriangle( v0, v2, v3, 0 );
+	gSPTriangle( v0, v1, v2 );
+	gSPTriangle( v0, v2, v3 );
 
 	gSPFlushTriangles();
 
 #ifdef DEBUG
 		DebugMsg( DEBUG_HIGH | DEBUG_HANDLED | DEBUG_TRIANGLE, "gSP1Quadrangle( %i, %i, %i, %i );\n",
 			v0, v1, v2, v3 );
-#endif
-}
-
-bool gSPCullVertices( u32 v0, u32 vn )
-{
-	float xClip, yClip, zClip;
-
-	xClip = yClip = zClip = 0.0f;
-
-	for (unsigned int i = v0; i <= vn; i++)
-	{
-		if (gSP.vertices[i].xClip == 0.0f)
-			return FALSE;
-		else if (gSP.vertices[i].xClip < 0.0f)
-		{
-			if (xClip > 0.0f)
-				return FALSE;
-			else 
-				xClip = gSP.vertices[i].xClip;
-		}
-		else if (gSP.vertices[i].xClip > 0.0f)
-		{
-			if (xClip < 0.0f)
-				return FALSE;
-			else 
-				xClip = gSP.vertices[i].xClip;
-		}
-
-		if (gSP.vertices[i].yClip == 0.0f)
-			return FALSE;
-		else if (gSP.vertices[i].yClip < 0.0f)
-		{
-			if (yClip > 0.0f)
-				return FALSE;
-			else 
-				yClip = gSP.vertices[i].yClip;
-		}
-		else if (gSP.vertices[i].yClip > 0.0f)
-		{
-			if (yClip < 0.0f)
-				return FALSE;
-			else 
-				yClip = gSP.vertices[i].yClip;
-		}
-
-		if (gSP.vertices[i].zClip == 0.0f)
-			return FALSE;
-		else if (gSP.vertices[i].zClip < 0.0f)
-		{
-			if (zClip > 0.0f)
-				return FALSE;
-			else 
-				zClip = gSP.vertices[i].zClip;
-		}
-		else if (gSP.vertices[i].zClip > 0.0f)
-		{
-			if (zClip < 0.0f)
-				return FALSE;
-			else 
-				zClip = gSP.vertices[i].zClip;
-		}
-	}
-
-	return TRUE;
-}
-
-void gSPCullDisplayList( u32 v0, u32 vn )
-{
-	if (gSPCullVertices( v0, vn ))
-	{
-		if (RSP.PCi > 0)
-			RSP.PCi--;
-		else
-		{
-#ifdef DEBUG
-			DebugMsg( DEBUG_DETAIL | DEBUG_HANDLED, "// End of display list, halting execution\n" );
-#endif
-			RSP.halt = TRUE;
-		}
-#ifdef DEBUG
-		DebugMsg( DEBUG_DETAIL | DEBUG_HANDLED, "// Culling display list\n" );
-		DebugMsg( DEBUG_HIGH | DEBUG_HANDLED, "gSPCullDisplayList( %i, %i );\n\n",
-			v0, vn );
-#endif
-	}
-#ifdef DEBUG
-	else
-	{
-		DebugMsg( DEBUG_DETAIL | DEBUG_HANDLED, "// Not culling display list\n" );
-		DebugMsg( DEBUG_HIGH | DEBUG_HANDLED, "gSPCullDisplayList( %i, %i );\n",
-			v0, vn );
-	}
 #endif
 }
 
@@ -1525,7 +1203,7 @@ void gSPInsertMatrix( u32 where, u32 num )
 		f32 newValue;
 
 		fraction = modff( gSP.matrix.combined[0][(where - 0x20) >> 1], &integer );
-		newValue = integer + _FIXED2FLOAT( _SHIFTR( num, 16, 16 ), 16);
+		newValue = integer + GXcastu16f32( _SHIFTR( num, 16, 16 ) );
 
 		// Make sure the sign isn't lost
 		if ((integer == 0.0f) && (fraction != 0.0f))
@@ -1534,7 +1212,7 @@ void gSPInsertMatrix( u32 where, u32 num )
 		gSP.matrix.combined[0][(where - 0x20) >> 1] = newValue;
 
 		fraction = modff( gSP.matrix.combined[0][((where - 0x20) >> 1) + 1], &integer );
-		newValue = integer + _FIXED2FLOAT( _SHIFTR( num, 0, 16 ), 16 );
+		newValue = integer + GXcastu16f32( _SHIFTR( num, 0, 16 ) );
 
 		// Make sure the sign isn't lost
 		if ((integer == 0.0f) && (fraction != 0.0f))
@@ -1551,35 +1229,21 @@ void gSPInsertMatrix( u32 where, u32 num )
 
 	if (OGL.numTriangles)
 		OGL_DrawTriangles();
-	OGL.GXupdateMtx = true;
 
-	if(gSP.matrix.combined[2][3] != 0)
+	guMtxInverse( gSP.matrix.combined, OGL.GXprojTemp );
+
+	if (OGL.GXprojTemp[2][3] != 0.0f)
 	{
-		OGL.GXcombW[2][2] = -GXprojZOffset - (GXprojZScale*gSP.matrix.combined[2][2]/gSP.matrix.combined[2][3]);
-		OGL.GXcombW[2][3] = GXprojZScale*(gSP.matrix.combined[3][2] - (gSP.matrix.combined[2][2]*gSP.matrix.combined[3][3]/gSP.matrix.combined[2][3]));
-//		OGL.GXcombW[2][3] = OGL.GXcombW[2][3]-0.25;
+		OGL.GXcombW[2][3] = GXprojZScale / OGL.GXprojTemp[2][3];
+		OGL.GXcombW[2][2] = -GXprojZOffset + (OGL.GXcombW[2][3] * OGL.GXprojTemp[3][3]);
 		OGL.GXuseCombW = true;
-
-		//Transform for zPrime
-		if (gSP.matrix.combined[2][2] != 0)
-		{
-			OGL.GXzPrimeScale		= -gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2];
-			OGL.GXzPrimeTranslate	= -(gSP.matrix.combined[3][2] - (gSP.matrix.combined[2][2]*gSP.matrix.combined[3][3]/gSP.matrix.combined[2][3]))*(gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2]);
-//			OGL.GXzPrimeScale		= gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2];
-//			OGL.GXzPrimeTranslate	= -(gSP.matrix.combined[3][2] + (gSP.matrix.combined[2][2]*gSP.matrix.combined[3][3]/gSP.matrix.combined[2][3]))*(gSP.matrix.combined[2][3]/gSP.matrix.combined[2][2]);
-		}
-		else
-		{
-			OGL.GXzPrimeScale = OGL.GXzPrimeTranslate = 0;
-# ifdef SHOW_DEBUG
-			sprintf(txtbuffer,"gSPCombineMtx: zPrime Error!");
-			DEBUG_print(txtbuffer,6+1); 
-# endif
-		}
+		OGL.GXupdateMtx = true;
 	}
 	else
+	{
 		OGL.GXuseCombW = false;
-
+		OGL.GXupdateMtx = true;
+	}
 #endif //__GX__
 
 #ifdef DEBUG
@@ -1593,18 +1257,18 @@ void gSPModifyVertex( u32 vtx, u32 where, u32 val )
 	switch (where)
 	{
 		case G_MWO_POINT_RGBA:
-			gSP.vertices[vtx].r = _SHIFTR( val, 24, 8 ) * 0.0039215689f;
-			gSP.vertices[vtx].g = _SHIFTR( val, 16, 8 ) * 0.0039215689f;
-			gSP.vertices[vtx].b = _SHIFTR( val, 8, 8 ) * 0.0039215689f;
-			gSP.vertices[vtx].a = _SHIFTR( val, 0, 8 ) * 0.0039215689f;
+			gSP.vertices[vtx].r = GXcastu8f32( _SHIFTR( val, 24, 8 ) );
+			gSP.vertices[vtx].g = GXcastu8f32( _SHIFTR( val, 16, 8 ) );
+			gSP.vertices[vtx].b = GXcastu8f32( _SHIFTR( val, 8, 8 ) );
+			gSP.vertices[vtx].a = GXcastu8f32( _SHIFTR( val, 0, 8 ) );
 #ifdef DEBUG
 			DebugMsg( DEBUG_HIGH | DEBUG_HANDLED, "gSPModifyVertex( %i, %s, 0x%08X );\n",
 				vtx, MWOPointText[(where - 0x10) >> 2], val );
 #endif
 			break;
 		case G_MWO_POINT_ST:
-			gSP.vertices[vtx].s = _FIXED2FLOAT( (s16)_SHIFTR( val, 16, 16 ), 5 );
-			gSP.vertices[vtx].t = _FIXED2FLOAT( (s16)_SHIFTR( val, 0, 16 ), 5 );
+			gSP.vertices[vtx].s = _FIXED2FLOAT( (s16)_SHIFTR( val, 16, 16 ), 5 ) / gSP.texture.scales;
+			gSP.vertices[vtx].t = _FIXED2FLOAT( (s16)_SHIFTR( val, 0, 16 ), 5 ) / gSP.texture.scalet;
 #ifdef DEBUG
 			DebugMsg( DEBUG_HIGH | DEBUG_HANDLED, "gSPModifyVertex( %i, %s, 0x%08X );\n",
 				vtx, MWOPointText[(where - 0x10) >> 2], val );
@@ -1646,9 +1310,9 @@ void gSPLightColor( u32 lightNum, u32 packedColor )
 
 	if (lightNum < 8)
 	{
-		gSP.lights[lightNum].r = _SHIFTR( packedColor, 24, 8 ) * 0.0039215689f;
-		gSP.lights[lightNum].g = _SHIFTR( packedColor, 16, 8 ) * 0.0039215689f;
-		gSP.lights[lightNum].b = _SHIFTR( packedColor, 8, 8 ) * 0.0039215689f;
+		gSP.lights[lightNum].r = GXcastu8f32( _SHIFTR( packedColor, 24, 8 ) );
+		gSP.lights[lightNum].g = GXcastu8f32( _SHIFTR( packedColor, 16, 8 ) );
+		gSP.lights[lightNum].b = GXcastu8f32( _SHIFTR( packedColor, 8, 8 ) );
 	}
 #ifdef DEBUG
 	DebugMsg( DEBUG_HIGH | DEBUG_HANDLED, "gSPLightColor( %i, 0x%08X );\n",
@@ -1663,10 +1327,16 @@ void gSPFogFactor( s16 fm, s16 fo )
 
 #ifdef __GX__
 	//Adjust the range from 0.0 to 1.0
-//	OGL.GXfogStartZ = -(0.5f * (float)gSP.fog.offset / (float)gSP.fog.multiplier) + 0.5f;
-//	OGL.GXfogEndZ = (0.5f * (255.0f - (float)gSP.fog.offset) / (float)gSP.fog.multiplier) + 0.5f;
-	OGL.GXfogStartZ = -((float)gSP.fog.offset / (float)gSP.fog.multiplier);
-	OGL.GXfogEndZ = (255.0f - (float)gSP.fog.offset) / (float)gSP.fog.multiplier;
+	if (gSP.fog.multiplier == 0)
+	{
+		OGL.GXfogStartZ = 0.0f;
+		OGL.GXfogEndZ = 0.0f;
+	}
+	else
+	{
+		OGL.GXfogStartZ = -((float)gSP.fog.offset / (float)gSP.fog.multiplier);
+		OGL.GXfogEndZ = (256.0f - (float)gSP.fog.offset) / (float)gSP.fog.multiplier;
+	}
 #endif // __GX__
 
 	gSP.changed |= CHANGED_FOGPOSITION;

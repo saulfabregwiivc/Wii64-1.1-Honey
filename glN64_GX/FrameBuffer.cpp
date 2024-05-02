@@ -31,6 +31,8 @@
 
 FrameBufferInfo frameBuffer;
 
+extern GXRModeObj *vmode, *rmode;
+
 #ifdef __GX__
 extern heap_cntrl* GXtexCache;
 #endif //__GX__
@@ -215,8 +217,10 @@ void FrameBuffer_SaveBuffer( u32 address, u16 size, u16 width, u16 height )
 			//Note: texture realWidth and realHeight should be multiple of 2!
 			GX_SetTexCopySrc(OGL.GXorigX, OGL.GXorigY,(u16) current->texture->realWidth,(u16) current->texture->realHeight);
 			GX_SetTexCopyDst((u16) current->texture->realWidth,(u16) current->texture->realHeight, current->texture->GXtexfmt, GX_FALSE);
+			GX_SetCopyFilter(GX_FALSE, NULL, GX_FALSE, NULL);
 			if (current->texture->GXtexture) GX_CopyTex(current->texture->GXtexture, GX_FALSE);
 			GX_PixModeSync();
+			GX_SetCopyFilter(rmode->aa, rmode->sample_pattern, GX_TRUE, rmode->vfilter);
 #endif // __GX__
 
 			*(u32*)&RDRAM[current->startAddress] = current->startAddress;
@@ -326,8 +330,10 @@ void FrameBuffer_SaveBuffer( u32 address, u16 size, u16 width, u16 height )
 	//Note: texture realWidth and realHeight should be multiple of 2!
 	GX_SetTexCopySrc((u16) OGL.GXorigX, (u16) OGL.GXorigY,(u16) current->texture->realWidth,(u16) current->texture->realHeight);
 	GX_SetTexCopyDst((u16) current->texture->realWidth,(u16) current->texture->realHeight, current->texture->GXtexfmt, GX_FALSE);
+	GX_SetCopyFilter(GX_FALSE, NULL, GX_FALSE, NULL);
 	if (current->texture->GXtexture) GX_CopyTex(current->texture->GXtexture, GX_FALSE);
 	GX_PixModeSync();
+	GX_SetCopyFilter(rmode->aa, rmode->sample_pattern, GX_TRUE, rmode->vfilter);
 #endif // __GX__
 
 	*(u32*)&RDRAM[current->startAddress] = current->startAddress;
@@ -417,7 +423,6 @@ void FrameBuffer_RenderBuffer( u32 address )
 			GX_SetFog(GX_FOG_NONE,0.1,1.0,0.0,1.0,(GXColor) {0,0,0,255});
 
 			Mtx44 GXprojection;
-			guMtxIdentity(GXprojection);
 			guOrtho(GXprojection, 0, OGL.height, 0, OGL.width, 0.0f, 1.0f);
 			GX_LoadProjectionMtx(GXprojection, GX_ORTHOGRAPHIC); 
 			GX_LoadPosMtxImm(OGL.GXmodelViewIdent,GX_PNMTX0);
@@ -552,7 +557,6 @@ void FrameBuffer_RestoreBuffer( u32 address, u16 size, u16 width )
 			GX_SetFog(GX_FOG_NONE,0.1,1.0,0.0,1.0,(GXColor) {0,0,0,255});
 
 			Mtx44 GXprojection;
-			guMtxIdentity(GXprojection);
 			guOrtho(GXprojection, 0, OGL.height, 0, OGL.width, 0.0f, 1.0f);
 			GX_LoadProjectionMtx(GXprojection, GX_ORTHOGRAPHIC); 
 			GX_LoadPosMtxImm(OGL.GXmodelViewIdent,GX_PNMTX0);
