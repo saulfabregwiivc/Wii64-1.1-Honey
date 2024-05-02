@@ -193,8 +193,19 @@ int main(int argc, char* argv[]){
 	_break();
 #endif
 
+	/* Lets kill wpad */
+	WPAD_Shutdown();
+
+	/* Reload to IOS58 for USB */
+	if(IOS_GetVersion() != 58)
+		IOS_ReloadIOS(58);
+
 	Initialise(); // Stock OGC initialization
 //	vmode = VIDEO_GetPreferredMode(NULL);
+
+	/* after init wpad wait a bit*/
+	sleep(2);
+
 	MenuContext *menu = new MenuContext(vmode);
 	VIDEO_SetPostRetraceCallback (ScanPADSandReset);
 #ifndef WII
