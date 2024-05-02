@@ -99,7 +99,7 @@ static button_t menu_combos[] = {
 
 static unsigned int getButtons(classic_ctrl_t* controller)
 {
-	unsigned int b = (unsigned)controller->btns;
+	unsigned int b = (unsigned short)controller->btns;
 	s8 stickX      = getStickValue(&controller->ljs, STICK_X, 7);
 	s8 stickY      = getStickValue(&controller->ljs, STICK_Y, 7);
 	s8 substickX   = getStickValue(&controller->rjs, STICK_X, 7);
