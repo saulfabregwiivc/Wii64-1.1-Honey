@@ -75,6 +75,10 @@ void VI_UpdateSize()
 
 	if (VI.width == 0.0f) VI.width = (unsigned long)320.0f;
 	if (VI.height == 0.0f) VI.height = (unsigned long)240.0f;
+
+	// FIX94: Interlaced video mode detection (Quake II, etc...)
+	if ((*REG.VI_STATUS>>6)&1)
+		VI.height*=2;
 }
 
 void VI_UpdateScreen()
